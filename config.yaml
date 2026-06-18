@@ -8,10 +8,11 @@
 mode: dry_run            # dry_run | live   (live actually signs txs via TWAK)
 
 # --- Universe -------------------------------------------------------------
-# IMPORTANT: only the 149 eligible BEP-20 tokens count (off-list trades ignored).
-# Verify every symbol against the official list before live; on BSC, BTC/ETH are
-# pegged (BTCB, ETH). BTC is kept here only as the regime benchmark signal.
-whitelist: [BNB, CAKE, ETH, BTC, USDT]
+# Only the 149 eligible BEP-20 tokens count (off-list trades ignored).
+# NOTE: `whitelist` (signal universe) is AUTO-DERIVED at load from
+# regime.benchmark + twak.token_contracts + quote_asset, so the signal universe
+# always equals the trade universe. The value below is just a placeholder.
+whitelist: [BTC, USDT]
 quote_asset: USDT        # cash leg
 eligible_tokens_file: config/eligible_tokens.txt   # populate from the 149-list
 
@@ -74,6 +75,7 @@ signal:
   rsi_overbought: 70
   entry_threshold: 0.30         # |score| must exceed this to act
   chop_dampen: 0.30             # multiply score by this in chop regime
+  history_period: week          # twak price history window for live TA (~3h bars)
 
 # --- Regime detection -----------------------------------------------------
 regime:

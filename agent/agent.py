@@ -22,6 +22,7 @@ import yaml
 
 from . import risk_gate
 from .cmc_client import build_cmc_client
+from .signal_source import build_signal_source
 from .decision import build_decider
 from .executor import build_executor
 from .logbook import DecisionLog, utc_date, utc_hour, utc_now_iso
@@ -31,7 +32,14 @@ from .state import PortfolioState
 
 def load_config(path: str = "config.yaml") -> dict:
     with open(path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    # Signal universe MUST equal the trade universe, else the strategy can only
+    # act on tokens it also has signals for. Derive it from token_contracts so
+    # the two can never drift (benchmark drives regime; quote is the cash leg).
+    bench = cfg["regime"]["benchmark"]
+    trade = list(cfg["twak"]["token_contracts"])
+    cfg["whitelist"] = [bench] + [t for t in trade if t != bench] + [cfg["quote_asset"]]
+    return cfg
 
 
 def reconcile(state: PortfolioState, log: DecisionLog) -> None:
@@ -220,7 +228,7 @@ def main(argv=None):
         log.event("seed", cash=args.seed_cash)
 
     reconcile(state, log)
-    cmc = build_cmc_client(cfg)
+    cmc = build_signal_source(cfg)
     decider = build_decider(cfg)
     executor = build_executor(cfg)
 
