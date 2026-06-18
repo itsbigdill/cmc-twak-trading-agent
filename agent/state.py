@@ -58,6 +58,7 @@ class PortfolioState:
     open_orders: dict[str, Order] = field(default_factory=dict)
     equity_curve: list = field(default_factory=list)   # [[iso_ts, equity], ...]
     trade_count_total: int = 0
+    halted: bool = False        # kill switch tripped -> no trading for the window
     # per-day, keyed by UTC date string
     day: str = ""
     day_start_equity: float = 0.0
@@ -79,6 +80,15 @@ class PortfolioState:
         self.peak_equity = max(self.peak_equity, eq)
         self.equity_curve.append([iso_ts, eq])
         return eq
+
+    def position_pnl_pct(self, token: str, price: float) -> float:
+        """Unrealized PnL of a position as a fraction of entry. Handles shorts."""
+        p = self.positions.get(token)
+        if not p or p.avg_price <= 0:
+            return 0.0
+        if p.qty < 0:                       # short (perp): profit when price falls
+            return (p.avg_price - price) / p.avg_price
+        return (price - p.avg_price) / p.avg_price
 
     def current_drawdown(self, equity: float) -> float:
         """Peak-to-now drawdown as a fraction (0..1). 0 if at/above peak."""

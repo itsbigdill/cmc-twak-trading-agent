@@ -16,12 +16,18 @@ Track 1 ranks the **top 5 by total return** with a **hard drawdown DQ** (~30%) a
 | Judging criterion | What the agent does |
 |---|---|
 | **Returns** | Real CMC signals + regime detection; **perps allow shorting downtrends**, not just sitting in cash |
-| **Drawdown** | Hard 20% internal stop (buffer under the 30% DQ line) that **force-liquidates**, plus an 8% daily stop |
-| **Risk-adjusted** | **Tournament sizing**: aggressive while healthy, size shrinks automatically as drawdown approaches the stop |
-| **Rule adherence** | Every limit enforced in one `risk_gate`; **every blocked trade is logged with a reason** — shown to judges |
+| **Drawdown** | **Layered defense**: per-position stop (cut losers fast) + daily entry pause (resets next day → recovery) + kill switch at 25% peak-to-now (close all + halt; buffer under the ~30% DQ) |
+| **Risk-adjusted** | **Tournament sizing**: aggressive while healthy, size shrinks automatically as drawdown approaches the kill line |
+| **Rule adherence** | Every limit enforced in one `risk_gate`; **every blocked trade is logged with a reason** — shown to judges. Min 1 trade/day guaranteed; portfolio kept deployed (>$1/hour rule) |
 
 Pure conservatism finishes mid-pack (no prize); blowing the DQ line scores zero.
 This agent maximizes return *subject to never touching the DQ line*.
+
+### Official rules wired in (per FAQ)
+- Register on-chain before **22 Jun**: `twak compete register` (CLI) or `competition_register` (MCP), then submit the agent address + strategy explainer on DoraHacks.
+- Only the **149 eligible BEP-20 tokens** count — populate `config/eligible_tokens.txt` from the official list (off-list trades are ignored).
+- **Min 1 trade/day (7/week)**; hourly scoring; any hour starting with a **sub-$1 portfolio scores 0%** → keep capital deployed.
+- Ranked by **total return**, ~30% max-drawdown DQ. Self-funded mainnet wallet.
 
 ## Architecture
 

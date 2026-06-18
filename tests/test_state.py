@@ -29,6 +29,15 @@ def test_drawdown_and_daily_loss():
     assert s.daily_loss(920) == 0.08
 
 
+def test_position_pnl_pct_long_and_short():
+    s = PortfolioState()
+    s.positions["CAKE"] = Position(token="CAKE", qty=10, avg_price=2.0)   # long
+    s.positions["ETH"] = Position(token="ETH", qty=-1, avg_price=3000.0, is_perp=True)  # short
+    assert abs(s.position_pnl_pct("CAKE", 2.2) - 0.10) < 1e-9    # +10% long
+    assert abs(s.position_pnl_pct("CAKE", 1.8) + 0.10) < 1e-9    # -10% long
+    assert abs(s.position_pnl_pct("ETH", 2700.0) - 0.10) < 1e-9  # short profits on drop
+
+
 def test_save_load_roundtrip(tmp_path):
     path = os.path.join(tmp_path, "p.json")
     s = PortfolioState(cash_usd=500, peak_equity=600)

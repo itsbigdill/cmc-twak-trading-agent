@@ -28,9 +28,16 @@ risk:
   max_concentration_pct: 0.40   # max single asset as frac of total equity
   min_confidence: 0.55          # LLM confidence below this -> hold
 
-  # Drawdown — the DQ gate. Judge DQ threshold ~30%; we keep a hard buffer.
-  daily_loss_stop_pct: 0.08     # halt opening trades if down >8% on the day
-  drawdown_hard_stop_pct: 0.20  # peak-to-now; >=20% -> CLOSE-ONLY (never near 30% DQ)
+  # Drawdown — layered defense (DQ is on peak-to-now max drawdown, ~30%).
+  # 1) per-position stop: cut individual losers fast -> caps any one trade's
+  #    contribution to drawdown. This is the primary DQ protector.
+  # 2) daily pause: down >X% on the UTC day -> no NEW entries until next day
+  #    (resets daily, so recovery is possible; we don't freeze the whole window).
+  # 3) kill switch: peak-to-now drawdown hits the kill line -> close ALL + halt
+  #    for the rest of the window. Final guard, set well under the DQ line.
+  per_position_stop_pct: 0.06   # close a position down >6% from entry
+  daily_loss_stop_pct: 0.08     # pause new entries for the rest of the UTC day
+  drawdown_kill_pct: 0.25       # peak-to-now; close all + halt (buffer under ~30% DQ)
   drawdown_dq_reference_pct: 0.30  # the judges' line, for logging headroom only
 
   # Activity corridor (per official FAQ): min 1 trade/day, 7 over the week.

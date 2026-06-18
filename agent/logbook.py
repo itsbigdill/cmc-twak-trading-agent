@@ -21,6 +21,10 @@ def utc_date() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def utc_hour() -> int:
+    return datetime.now(timezone.utc).hour
+
+
 class DecisionLog:
     def __init__(self, path: str):
         self.path = path

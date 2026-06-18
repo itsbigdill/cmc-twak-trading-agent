@@ -24,7 +24,7 @@ from . import risk_gate
 from .cmc_client import build_cmc_client
 from .decision import build_decider
 from .executor import build_executor
-from .logbook import DecisionLog, utc_date, utc_now_iso
+from .logbook import DecisionLog, utc_date, utc_hour, utc_now_iso
 from .signal_engine import score_universe
 from .state import PortfolioState
 
@@ -47,6 +47,24 @@ def reconcile(state: PortfolioState, log: DecisionLog) -> None:
                   action=o.action, note="left PENDING by prior run; not resent")
 
 
+def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason) -> None:
+    """Persist-before-send, execute, log fill or error, persist again."""
+    state.save(cfg["paths"]["state_file"])      # idempotency: record intent first
+    try:
+        tx = executor.execute(tick_id=tick_id, token=token, action=action,
+                              size_usd=size_usd, price=price, state=state, log=log)
+        log.event("fill", token=token, action=action, size_usd=size_usd,
+                  tx_hash=tx, reason=reason)
+    except Exception as e:
+        log.event("exec_error", token=token, action=action, error=str(e))
+    finally:
+        state.save(cfg["paths"]["state_file"])
+
+
+def _force_close(executor, state, cfg, tick_id, token, price, log, reason) -> None:
+    _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0, price, log, reason)
+
+
 def run_tick(cfg, state, cmc, decider, executor, log) -> None:
     tick_id = utc_now_iso()
     snapshot = cmc.get_snapshot(cfg["whitelist"])
@@ -60,28 +78,37 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
               dq_headroom=round(cfg["risk"]["drawdown_dq_reference_pct"]
                                 - state.current_drawdown(equity), 4))
 
-    # --- DE-RISK: if drawdown breaches the hard stop, force-close everything.
-    # Going close-only isn't enough — open positions keep marking toward the DQ
-    # line. Liquidating is what actually protects us from disqualification.
+    # --- LAYERED DE-RISK (in order of severity) -----------------------------
+    if state.halted:
+        log.event("halted", note="kill switch tripped earlier; no trading")
+        return
+
+    r = cfg["risk"]
     dd = state.current_drawdown(equity)
-    if dd >= cfg["risk"]["drawdown_hard_stop_pct"] and state.positions:
-        log.event("derisk", drawdown=round(dd, 4), positions=list(state.positions),
-                  note="hard stop breached -> force-closing all positions")
+
+    # (3) Kill switch: peak-to-now drawdown at the kill line -> close all + halt.
+    if dd >= r["drawdown_kill_pct"]:
+        log.event("kill_switch", drawdown=round(dd, 4), positions=list(state.positions),
+                  note=f"dd>={r['drawdown_kill_pct']} -> liquidate all + halt for window")
         for tkn in list(state.positions):
-            state.save(cfg["paths"]["state_file"])
-            try:
-                tx = executor.execute(tick_id=tick_id, token=tkn, action="close",
-                                      size_usd=0.0, price=prices.get(tkn, 0.0),
-                                      state=state, log=log)
-                log.event("fill", token=tkn, action="close", size_usd=0.0,
-                          tx_hash=tx, reason="forced de-risk on hard stop")
-            except Exception as e:
-                log.event("exec_error", token=tkn, action="close", error=str(e))
-            finally:
-                state.save(cfg["paths"]["state_file"])
+            _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
+                         log, "kill switch")
+        state.halted = True
         state.mark_equity(prices, utc_now_iso())
         state.save(cfg["paths"]["state_file"])
-        return   # skip new entries this tick
+        return
+
+    # (1) Per-position stop: cut individual losers before they grow the drawdown.
+    for tkn in list(state.positions):
+        pnl = state.position_pnl_pct(tkn, prices.get(tkn, 0.0))
+        if pnl <= -r["per_position_stop_pct"]:
+            log.event("position_stop", token=tkn, pnl_pct=round(pnl, 4),
+                      note=f"<= -{r['per_position_stop_pct']} -> close")
+            _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
+                         log, f"per-position stop ({pnl:.3f})")
+
+    # refresh equity after any stops
+    equity = state.mark_equity(prices, utc_now_iso())
 
     signals = score_universe(snapshot, cfg)
     for t, s in signals.items():
@@ -117,20 +144,29 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
         if d["action"] in ("hold",):
             continue
 
-        state.save(cfg["paths"]["state_file"])      # PERSIST-BEFORE-SEND (idempotency)
-        try:
-            tx = executor.execute(
-                tick_id=tick_id, token=token, action=d["action"],
-                size_usd=verdict.adjusted_size_usd, price=prices.get(token, 0.0),
-                state=state, log=log,
+        _exec_and_log(executor, state, cfg, tick_id, token, d["action"],
+                      verdict.adjusted_size_usd, prices.get(token, 0.0),
+                      log, verdict.reason)
+
+    # --- Guarantee the min-1-trade/day requirement late in the UTC day ------
+    # Off-list/zero-trade days don't count; make one small maintenance trade if
+    # the day would otherwise close with no activity.
+    if (r.get("force_daily_trade") and state.trades_today == 0
+            and not state.halted and utc_hour() >= 22):
+        best = max(signals.values(), key=lambda s: abs(s.score), default=None)
+        tkn = best.token if best else next(
+            (t for t in cfg["whitelist"] if t != cfg["quote_asset"]), None)
+        if tkn and state.cash_usd > r["min_portfolio_usd"]:
+            verdict = risk_gate.evaluate(
+                token=tkn, action="buy", requested_size_pct=0.05, confidence=0.6,
+                token_risk_score=0, state=state, equity=equity, cfg=cfg,
             )
-            log.event("fill", token=token, action=d["action"],
-                      size_usd=verdict.adjusted_size_usd, tx_hash=tx,
-                      reason=verdict.reason)
-        except Exception as e:
-            log.event("exec_error", token=token, action=d["action"], error=str(e))
-        finally:
-            state.save(cfg["paths"]["state_file"])
+            if verdict.approved:
+                _exec_and_log(executor, state, cfg, tick_id, tkn, "buy",
+                              verdict.adjusted_size_usd, prices.get(tkn, 0.0),
+                              log, "maintenance trade (min 1/day)")
+            else:
+                log.event("maintenance_skipped", token=tkn, reason=verdict.reason)
 
     # final equity mark + persist
     state.mark_equity(prices, utc_now_iso())

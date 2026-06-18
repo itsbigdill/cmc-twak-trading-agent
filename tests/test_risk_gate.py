@@ -19,15 +19,27 @@ def test_oversize_is_capped_not_blocked(cfg):
     assert res.adjusted_size_usd <= 1000 * cfg["risk"]["max_position_pct"] + 1e-6
 
 
-def test_hard_drawdown_blocks_opening(cfg):
+def test_kill_switch_blocks_opening(cfg):
     s = _fresh_state(cash=1000, peak=1000)
-    equity = 750.0   # 25% drawdown > 20% hard stop
+    equity = 750.0   # 25% peak-to-now drawdown == kill line
     res = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
         token_risk_score=10, state=s, equity=equity, cfg=cfg, now=10_000,
     )
     assert not res.approved
-    assert "drawdown_hard_stop" in res.reason
+    assert "drawdown_kill" in res.reason
+
+
+def test_daily_pause_blocks_opening(cfg):
+    # 10% down on the day but only 10% peak-to-now (under the 25% kill) -> pause
+    s = _fresh_state(cash=1000, peak=1000)
+    s.day_start_equity = 1000
+    res = risk_gate.evaluate(
+        token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
+        token_risk_score=10, state=s, equity=900.0, cfg=cfg, now=10_000,
+    )
+    assert not res.approved
+    assert "daily_pause" in res.reason
 
 
 def test_close_allowed_even_past_drawdown(cfg):

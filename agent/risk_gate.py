@@ -64,16 +64,16 @@ def evaluate(
     if action in ("close", "hold"):
         return RiskResult(action != "hold", f"{action}_allowed", 0.0, round(headroom, 4))
 
-    # ---- 1. Hard drawdown stop -> CLOSE-ONLY --------------------------------
-    if current_dd >= r["drawdown_hard_stop_pct"]:
+    # ---- 1. Kill switch (peak-to-now) -> CLOSE-ONLY for the window ----------
+    if current_dd >= r["drawdown_kill_pct"]:
         return block(
-            f"drawdown_hard_stop: dd={current_dd:.3f} >= {r['drawdown_hard_stop_pct']} "
+            f"drawdown_kill: dd={current_dd:.3f} >= {r['drawdown_kill_pct']} "
             f"(close-only; DQ headroom {headroom:.3f})"
         )
 
-    # ---- 2. Daily loss stop -------------------------------------------------
+    # ---- 2. Daily pause: no new entries for the rest of the UTC day ---------
     if daily_loss >= r["daily_loss_stop_pct"]:
-        return block(f"daily_loss_stop: loss={daily_loss:.3f} >= {r['daily_loss_stop_pct']}")
+        return block(f"daily_pause: loss={daily_loss:.3f} >= {r['daily_loss_stop_pct']}")
 
     # ---- 3. Confidence floor ------------------------------------------------
     if confidence < r["min_confidence"]:
@@ -89,9 +89,9 @@ def evaluate(
     if token_risk_score > r["max_token_risk_score"]:
         return block(f"token_risk_score too high: {token_risk_score} > {r['max_token_risk_score']}")
 
-    # ---- 6. Size: cap, then tournament-scale by remaining DD budget ---------
+    # ---- 6. Size: cap, then tournament-scale by headroom to the kill line ---
     size_pct = min(requested_size_pct, r["max_position_pct"])
-    budget = _risk_budget_fraction(current_dd, r["drawdown_hard_stop_pct"])
+    budget = _risk_budget_fraction(current_dd, r["drawdown_kill_pct"])
     size_usd = state.cash_usd * size_pct * budget
 
     if size_usd <= 0:
