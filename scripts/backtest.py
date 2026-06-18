@@ -176,6 +176,44 @@ def main():
     bh_vals = [prices[t][-1] / prices[t][warmup] - 1 for t in trade_syms]
     bh_avg = sum(bh_vals) / len(bh_vals) if bh_vals else 0.0   # equal-weight buy&hold
 
+    # --- emit dashboard data (our equity vs equal-weight buy&hold, per bar) ---
+    from collections import OrderedDict
+    by_iso = OrderedDict()
+    for iso, val in curve:
+        by_iso[iso] = val                       # last mark per bar timestamp wins
+    ours_series = list(by_iso.values())
+    dseries, bench_series = [], []
+    for i in range(warmup, n):
+        r = sum(prices[t][i] / prices[t][warmup] for t in trade_syms) / len(trade_syms)
+        bench_series.append(round(args.cash * r, 4))
+        dseries.append(datetime.fromtimestamp(dates[i], tz=timezone.utc).strftime("%Y-%m-%d"))
+    rows = [json.loads(l) for l in open("logs/backtest.jsonl")] if os.path.exists("logs/backtest.jsonl") else []
+    blocks = [r for r in rows if r.get("kind") == "blocked"]
+    from collections import Counter
+    result = {
+        "generated": dseries[-1] if dseries else "",
+        "policy": cfg["decision"]["policy"], "universe": args.universe,
+        "tokens": trade_syms, "period": args.period,
+        "dates": dseries, "equity": [round(x, 4) for x in ours_series], "benchmark": bench_series,
+        "kpis": {
+            "initial": args.cash, "final": round(final, 2),
+            "total_return_pct": round((final / args.cash - 1) * 100, 2),
+            "max_drawdown_pct": round(max_drawdown(curve) * 100, 2),
+            "dq_pct": cfg["risk"]["drawdown_dq_reference_pct"] * 100,
+            "sharpe_like": round(sharpe_like(rets), 3),
+            "trades": state.trade_count_total,
+            "buyhold_pct": round(bh_avg * 100, 2),
+        },
+        "positions": {t: round(p.qty, 6) for t, p in state.positions.items()},
+        "cash": round(state.cash_usd, 2),
+        "blocked": len(blocks),
+        "block_reasons": dict(Counter(b["reason"].split(":")[0] for b in blocks)),
+        "fills": [r for r in rows if r.get("kind") == "fill"][-8:],
+    }
+    with open("logs/backtest_result.json", "w") as f:
+        json.dump(result, f, indent=2)
+    print("  -> logs/backtest_result.json (dashboard data)")
+
     print("\n=== BACKTEST (real prices, real strategy code) ===")
     print(f"  bars:           {n - warmup}  ({args.period})")
     print(f"  equity:         ${args.cash:.0f} -> ${final:.2f}  "

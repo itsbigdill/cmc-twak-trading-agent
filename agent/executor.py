@@ -63,7 +63,7 @@ class MockExecutor:
         self.cfg = cfg
         self.slippage = slippage
 
-    def execute(self, *, tick_id, token, action, size_usd, price, state, log) -> Optional[str]:
+    def execute(self, *, tick_id, token, action, size_usd, price, state, log, now=None) -> Optional[str]:
         oid = make_order_id(tick_id, token, action)
         if state.has_order(oid):
             log.event("skip_duplicate", order_id=oid, token=token, action=action)
@@ -82,7 +82,7 @@ class MockExecutor:
 
         tx = f"0xMOCK{oid}"
         state.complete_order(oid, tx, fill_price)
-        state.last_trade_ts = time.time()
+        state.last_trade_ts = now if now is not None else time.time()
         return tx
 
 
@@ -142,7 +142,7 @@ class TwakExecutor:
     def quote_only(self, token, size_usd) -> dict:
         return self._run(self._buy_cmd(token, size_usd, quote_only=True))
 
-    def execute(self, *, tick_id, token, action, size_usd, price, state, log) -> Optional[str]:
+    def execute(self, *, tick_id, token, action, size_usd, price, state, log, now=None) -> Optional[str]:
         oid = make_order_id(tick_id, token, action)
         if state.has_order(oid):
             log.event("skip_duplicate", order_id=oid, token=token, action=action)
@@ -172,7 +172,7 @@ class TwakExecutor:
 
         tx = res.get("txHash") or res.get("hash") or res.get("tx_hash", "")
         state.complete_order(oid, tx, _lead_float(res.get("output")) or price)
-        state.last_trade_ts = time.time()
+        state.last_trade_ts = now if now is not None else time.time()
         return tx
 
 

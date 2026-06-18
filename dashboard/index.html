@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CMC-TWAK Trading Agent — Performance</title>
+<style>
+:root{--bg:#0a0e17;--surf:#131a28;--surf2:#1b2435;--line:#27314a;--txt:#e8edf7;
+--mut:#8a96ad;--grn:#2fd27e;--red:#ff5d6c;--blu:#4d8dff;--amb:#ffb547;--vio:#9b8cff}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:'Inter',system-ui,-apple-system,sans-serif;
+padding:28px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1040px;margin:0 auto}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+.brand h1{font-size:23px;font-weight:650;letter-spacing:-.3px}
+.brand p{color:var(--mut);font-size:13px;margin-top:4px}
+.badges{display:flex;gap:8px;flex-wrap:wrap}
+.badge{background:var(--surf2);border:1px solid var(--line);border-radius:999px;
+padding:6px 12px;font-size:12px;font-weight:550;color:var(--mut)}
+.badge.on{color:var(--grn);border-color:rgba(47,210,126,.35)}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.card{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+.card .lab{color:var(--mut);font-size:12px;font-weight:550;text-transform:uppercase;letter-spacing:.5px}
+.card .val{font-size:26px;font-weight:700;margin-top:8px;font-variant-numeric:tabular-nums}
+.card .sub{color:var(--mut);font-size:12px;margin-top:4px}
+.pos{color:var(--grn)}.neg{color:var(--red)}.hero-num{font-size:30px}
+.cols{display:grid;grid-template-columns:2fr 1fr;gap:14px}
+.panel{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:18px}
+.panel h2{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+.panel h2 span{color:var(--mut);font-size:12px;font-weight:500}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin-top:6px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
+.row:last-child{border:0}.row .t{color:var(--mut)}
+.gauge{height:10px;background:var(--surf2);border-radius:999px;overflow:hidden;margin:10px 0 6px}
+.gauge>i{display:block;height:100%;background:linear-gradient(90deg,var(--grn),var(--amb))}
+.tag{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--surf2);color:var(--mut);font-weight:600}
+.foot{margin-top:20px;color:var(--mut);font-size:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.foot b{color:var(--blu)}
+@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+</style></head>
+<body><div class="wrap">
+<div class="top">
+  <div class="brand">
+    <h1>🤖 CMC-TWAK Autonomous Trading Agent</h1>
+    <p id="byline">BNB Hack: AI Trading Agent Edition · live on BSC</p>
+  </div>
+  <div class="badges" id="badges"></div>
+</div>
+<div class="grid" id="kpis"></div>
+<div class="cols">
+  <div class="panel">
+    <h2>Equity vs. equal-weight buy &amp; hold <span id="chartmeta"></span></h2>
+    <div id="chart"></div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--grn)"></i>Agent</span>
+      <span><i class="dot" style="background:var(--red)"></i>Buy &amp; hold (market)</span>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Risk &amp; rules</h2>
+    <div style="font-size:12px;color:var(--mut)">Drawdown headroom to DQ line</div>
+    <div class="gauge"><i id="ddbar"></i></div>
+    <div style="font-size:12px;color:var(--mut);margin-bottom:14px"><span id="ddtxt"></span></div>
+    <div id="rules"></div>
+  </div>
+</div>
+<div class="cols" style="margin-top:14px">
+  <div class="panel">
+    <h2>Recent decisions <span>signal → action → reason</span></h2>
+    <div id="fills"></div>
+  </div>
+  <div class="panel">
+    <h2>Holdings</h2>
+    <div id="holdings"></div>
+  </div>
+</div>
+<div class="foot">
+  <span>Signals: <b>#CMCAgentHub</b> (12 MCP tools) · Execution: Trust Wallet Agent Kit · Identity: ERC-8004</span>
+  <span id="ts"></span>
+</div>
+</div>
+<script>
+const D={"generated": "2026-06-18", "policy": "rotation", "universe": "core", "tokens": ["ETH", "CAKE", "XRP", "LINK", "LTC", "DOGE", "ADA", "DOT", "ATOM", "FIL", "INJ", "SUSHI", "COMP", "SNX", "APE", "AXS", "LDO", "PENDLE", "TWT"], "period": "year", "dates": ["2025-10-08", "2025-10-11", "2025-10-14", "2025-10-17", "2025-10-20", "2025-10-23", "2025-10-26", "2025-10-29", "2025-11-01", "2025-11-04", "2025-11-07", "2025-11-10", "2025-11-13", "2025-11-16", "2025-11-19", "2025-11-22", "2025-11-25", "2025-11-28", "2025-12-01", "2025-12-04", "2025-12-07", "2025-12-10", "2025-12-13", "2025-12-16", "2025-12-19", "2025-12-22", "2025-12-25", "2025-12-28", "2025-12-31", "2026-01-03", "2026-01-06", "2026-01-09", "2026-01-12", "2026-01-15", "2026-01-18", "2026-01-21", "2026-01-24", "2026-01-27", "2026-01-30", "2026-02-02", "2026-02-05", "2026-02-08", "2026-02-11", "2026-02-14", "2026-02-17", "2026-02-20", "2026-02-23", "2026-02-26", "2026-03-01", "2026-03-04", "2026-03-07", "2026-03-10", "2026-03-13", "2026-03-16", "2026-03-19", "2026-03-22", "2026-03-25", "2026-03-28", "2026-03-31", "2026-04-03", "2026-04-06", "2026-04-09", "2026-04-12", "2026-04-15", "2026-04-18", "2026-04-21", "2026-04-24", "2026-04-27", "2026-04-30", "2026-05-03", "2026-05-06", "2026-05-09", "2026-05-12", "2026-05-15", "2026-05-18", "2026-05-21", "2026-05-24", "2026-05-27", "2026-05-30", "2026-06-02", "2026-06-05", "2026-06-08", "2026-06-11", "2026-06-14", "2026-06-17", "2026-06-18", "2026-06-18"], "equity": [199.8657, 184.6841, 205.6341, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.1636, 196.0608, 196.6941, 193.0174, 190.1373, 190.2722, 191.9272, 188.4011, 188.0861, 184.8668, 182.8535, 180.6482, 178.4579, 177.8212, 177.8212, 177.8212, 177.8212, 177.8212, 177.8212, 177.8212, 177.8212], "benchmark": [200.0, 184.6201, 207.5004, 206.9316, 218.0414, 205.9788, 206.2453, 203.2281, 209.4554, 197.9463, 198.8098, 188.6993, 185.913, 181.4034, 176.6149, 174.5081, 162.6473, 150.5391, 148.024, 138.2918, 134.1733, 133.1692, 127.1178, 127.9784, 132.8739, 131.61, 128.7106, 133.1141, 125.5632, 131.2677, 133.1991, 130.9108, 128.9931, 133.4735, 132.3384, 131.7473, 135.2676, 136.3465, 132.3618, 135.1739, 125.9638, 123.8912, 121.4365, 125.5292, 118.6328, 115.9563, 115.795, 114.9271, 115.1644, 116.881, 118.5786, 118.2725, 116.8702, 120.3096, 123.6421, 124.6616, 122.3592, 124.5042, 127.7432, 127.0775, 125.9087, 126.4229, 129.4037, 132.4759, 139.2661, 138.7452, 141.2649, 144.1684, 143.4496, 138.2715, 135.7993, 136.9781, 139.1581, 134.9894, 135.0771, 129.8299, 132.5619, 127.985, 119.8938, 108.5125, 111.7558, 108.7539, 112.4094, 113.261, 118.197, 113.3955, 111.1726], "kpis": {"initial": 200.0, "final": 177.82, "total_return_pct": -11.09, "max_drawdown_pct": 13.55, "dq_pct": 30.0, "sharpe_like": -0.044, "trades": 82, "buyhold_pct": -44.41}, "positions": {}, "cash": 177.82, "blocked": 0, "block_reasons": {}, "fills": [{"kind": "fill", "token": "FIL", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK81ee3c8283fc48f7", "reason": "per-position stop (-0.071)", "ts": "2026-06-18T21:09:15.798834+00:00"}, {"kind": "fill", "token": "COMP", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCKe09c84c04a2ba4df", "reason": "per-position stop (-0.054)", "ts": "2026-06-18T21:09:15.800739+00:00"}, {"kind": "fill", "token": "ATOM", "action": "buy", "size_usd": 6.2, "tx_hash": "0xMOCKf31457eee719d049", "reason": "approved size=$6.20 (budget_mult=0.19, dd=0.122)", "ts": "2026-06-18T21:09:15.803279+00:00"}, {"kind": "fill", "token": "APE", "action": "buy", "size_usd": 5.96, "tx_hash": "0xMOCK9418a02b41cef6cd", "reason": "approved size=$5.96 (budget_mult=0.19, dd=0.122)", "ts": "2026-06-18T21:09:15.805284+00:00"}, {"kind": "fill", "token": "PENDLE", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK1bd1e468768bdd09", "reason": "per-position stop (-0.045)", "ts": "2026-06-18T21:09:15.808436+00:00"}, {"kind": "fill", "token": "INJ", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK03df1557ede5bf44", "reason": "per-position stop (-0.077)", "ts": "2026-06-18T21:09:15.810423+00:00"}, {"kind": "fill", "token": "APE", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK97f713073036f820", "reason": "per-position stop (-0.154)", "ts": "2026-06-18T21:09:15.812405+00:00"}, {"kind": "fill", "token": "ATOM", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCKef298dc435adf85a", "reason": "per-position stop (-0.111)", "ts": "2026-06-18T21:09:15.815917+00:00"}]};
+const $=id=>document.getElementById(id);
+const pct=v=>(v>=0?'+':'')+v.toFixed(2)+'%';
+const cls=v=>v>=0?'pos':'neg';
+
+// badges
+$('badges').innerHTML=[`<span class="badge on">● ${D.policy} strategy</span>`,
+  `<span class="badge">${D.tokens.length} eligible tokens</span>`,
+  `<span class="badge">CMC Agent Hub</span>`,`<span class="badge">TWAK · BSC</span>`].join('');
+
+// KPIs
+const k=D.kpis, edge=(k.total_return_pct-k.buyhold_pct);
+$('kpis').innerHTML=[
+ ['Total return',pct(k.total_return_pct),cls(k.total_return_pct),'backtest, '+D.period],
+ ['vs. buy &amp; hold','+'+edge.toFixed(1)+' pts','pos','market did '+pct(k.buyhold_pct)],
+ ['Max drawdown',k.max_drawdown_pct.toFixed(2)+'%','pos','DQ line '+k.dq_pct+'% — safe'],
+ ['Sharpe-like',k.sharpe_like.toFixed(2),k.sharpe_like>=0?'pos':'neg','per-bar'],
+ ['Trades',String(k.trades),'',D.blocked+' blocked by rules'],
+ ['Final equity','$'+k.final.toFixed(0),cls(k.total_return_pct),'from $'+k.initial.toFixed(0)],
+].map(([l,v,c,s])=>`<div class="card"><div class="lab">${l}</div>
+ <div class="val ${c}">${v}</div><div class="sub">${s}</div></div>`).join('');
+// make the edge card the hero
+$('kpis').children[1].querySelector('.val').classList.add('hero-num');
+
+// chart
+function chart(){
+ const W=660,H=240,pad=28,N=D.equity.length;
+ const all=D.equity.concat(D.benchmark);let mn=Math.min(...all),mx=Math.max(...all);
+ const pd=(mx-mn)*0.08||1;mn-=pd;mx+=pd;
+ const X=i=>pad+i*(W-2*pad)/(N-1), Y=v=>H-pad-(v-mn)/(mx-mn)*(H-2*pad);
+ const path=s=>s.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+ const area=path(D.equity)+` L${X(N-1)} ${H-pad} L${X(0)} ${H-pad} Z`;
+ let grid='';for(let g=0;g<=3;g++){const yy=pad+g*(H-2*pad)/3;
+  grid+=`<line x1="${pad}" y1="${yy}" x2="${W-pad}" y2="${yy}" stroke="var(--line)" stroke-width="1"/>`;}
+ $('chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+   <stop offset="0" stop-color="var(--grn)" stop-opacity=".28"/>
+   <stop offset="1" stop-color="var(--grn)" stop-opacity="0"/></linearGradient></defs>
+  ${grid}
+  <path d="${area}" fill="url(#g)"/>
+  <path d="${path(D.benchmark)}" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="5 4" opacity=".85"/>
+  <path d="${path(D.equity)}" fill="none" stroke="var(--grn)" stroke-width="2.5"/>
+  <text x="${pad}" y="${H-6}" fill="var(--mut)" font-size="11">${D.dates[0]||''}</text>
+  <text x="${W-pad}" y="${H-6}" fill="var(--mut)" font-size="11" text-anchor="end">${D.dates[D.dates.length-1]||''}</text>
+  <text x="${W-pad}" y="${pad-8}" fill="var(--mut)" font-size="11" text-anchor="end">$${mx.toFixed(0)}</text>
+ </svg>`;
+ $('chartmeta').textContent=N+' bars';
+}
+chart();
+
+// risk gauge
+const head=Math.max(0,k.dq_pct-k.max_drawdown_pct);
+$('ddbar').style.width=Math.min(100,k.max_drawdown_pct/k.dq_pct*100).toFixed(1)+'%';
+$('ddtxt').innerHTML=`Used <b style="color:var(--txt)">${k.max_drawdown_pct.toFixed(2)}%</b> of the ${k.dq_pct}% DQ budget · ${head.toFixed(1)}% headroom`;
+const br=Object.entries(D.block_reasons||{}).map(([r,n])=>`<div class="row"><span class="t">${r}</span><span class="tag">${n}</span></div>`).join('');
+$('rules').innerHTML=`<div class="row"><span class="t">Min trades / week</span><span>${k.trades} / 7</span></div>
+ <div class="row"><span class="t">Trades blocked (rule adherence)</span><span>${D.blocked}</span></div>${br}`;
+
+// fills
+$('fills').innerHTML=(D.fills.length?D.fills:[]).map(f=>`<div class="row">
+  <span><b>${(f.action||'').toUpperCase()}</b> ${f.token}</span>
+  <span class="t">${(f.reason||'').slice(0,42)}</span></div>`).join('')||'<div class="t" style="color:var(--mut);font-size:13px">Capital preserved in cash — disciplined inactivity in risk-off.</div>';
+
+// holdings
+const pos=Object.entries(D.positions||{});
+$('holdings').innerHTML=`<div class="row"><span>USDT (cash)</span><span class="pos">$${D.cash.toFixed(2)}</span></div>`+
+ (pos.length?pos.map(([t,q])=>`<div class="row"><span>${t}</span><span>${q}</span></div>`).join('')
+  :'<div class="t" style="color:var(--mut);font-size:13px;margin-top:8px">Fully in cash — risk-off regime.</div>');
+
+$('ts').textContent='Generated '+D.generated+' · '+D.universe+' universe';
+</script></body></html>

@@ -47,12 +47,12 @@ def reconcile(state: PortfolioState, log: DecisionLog) -> None:
                   action=o.action, note="left PENDING by prior run; not resent")
 
 
-def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason) -> None:
+def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason, now=None) -> None:
     """Persist-before-send, execute, log fill or error, persist again."""
     state.save(cfg["paths"]["state_file"])      # idempotency: record intent first
     try:
         tx = executor.execute(tick_id=tick_id, token=token, action=action,
-                              size_usd=size_usd, price=price, state=state, log=log)
+                              size_usd=size_usd, price=price, state=state, log=log, now=now)
         log.event("fill", token=token, action=action, size_usd=size_usd,
                   tx_hash=tx, reason=reason)
     except Exception as e:
@@ -61,8 +61,8 @@ def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price,
         state.save(cfg["paths"]["state_file"])
 
 
-def _force_close(executor, state, cfg, tick_id, token, price, log, reason) -> None:
-    _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0, price, log, reason)
+def _force_close(executor, state, cfg, tick_id, token, price, log, reason, now=None) -> None:
+    _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0, price, log, reason, now=now)
 
 
 def run_tick(cfg, state, cmc, decider, executor, log) -> None:
@@ -105,7 +105,7 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
                   note=f"dd>={r['drawdown_kill_pct']} -> liquidate all + halt for window")
         for tkn in list(state.positions):
             _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
-                         log, "kill switch")
+                         log, "kill switch", now=now_ts)
         state.halted = True
         state.mark_equity(prices, tick_id)
         state.save(cfg["paths"]["state_file"])
@@ -118,7 +118,7 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
             log.event("position_stop", token=tkn, pnl_pct=round(pnl, 4),
                       note=f"<= -{r['per_position_stop_pct']} -> close")
             _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
-                         log, f"per-position stop ({pnl:.3f})")
+                         log, f"per-position stop ({pnl:.3f})", now=now_ts)
 
     # refresh equity after any stops
     equity = state.mark_equity(prices, tick_id)
@@ -165,7 +165,7 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
 
         _exec_and_log(executor, state, cfg, tick_id, token, d["action"],
                       verdict.adjusted_size_usd, prices.get(token, 0.0),
-                      log, verdict.reason)
+                      log, verdict.reason, now=now_ts)
 
     # --- Guarantee the min-1-trade/day requirement late in the UTC day ------
     # Off-list/zero-trade days don't count; make one small maintenance trade if
@@ -184,7 +184,7 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
             if verdict.approved:
                 _exec_and_log(executor, state, cfg, tick_id, tkn, "buy",
                               verdict.adjusted_size_usd, prices.get(tkn, 0.0),
-                              log, "maintenance trade (min 1/day)")
+                              log, "maintenance trade (min 1/day)", now=now_ts)
             else:
                 log.event("maintenance_skipped", token=tkn, reason=verdict.reason)
 
