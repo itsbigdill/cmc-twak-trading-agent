@@ -66,13 +66,26 @@ def _force_close(executor, state, cfg, tick_id, token, price, log, reason) -> No
 
 
 def run_tick(cfg, state, cmc, decider, executor, log) -> None:
-    tick_id = utc_now_iso()
+    """Live tick: fetch market data, then process it."""
     snapshot = cmc.get_snapshot(cfg["whitelist"])
     prices = {t: d.get("price", 0.0) for t, d in snapshot.items()}
+    process_tick(cfg, state, snapshot, prices, decider, executor, log)
+
+
+def process_tick(cfg, state, snapshot, prices, decider, executor, log,
+                 *, now_ts=None, date_str=None, hour=None, ts_iso=None) -> None:
+    """Core decision/risk/execute path. Clock is injectable so the backtester
+    can replay historical bars through the exact same logic as the live loop."""
+    import time as _time
+
+    now_ts = now_ts if now_ts is not None else _time.time()
+    date_str = date_str or utc_date()
+    hour = hour if hour is not None else utc_hour()
+    tick_id = ts_iso or utc_now_iso()
 
     # roll day boundary + mark equity from current prices
     equity = state.mark_equity(prices, tick_id)
-    state.roll_day(utc_date(), equity)
+    state.roll_day(date_str, equity)
     log.event("tick", tick_id=tick_id, equity=equity,
               drawdown=round(state.current_drawdown(equity), 4),
               dq_headroom=round(cfg["risk"]["drawdown_dq_reference_pct"]
@@ -94,7 +107,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
             _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
                          log, "kill switch")
         state.halted = True
-        state.mark_equity(prices, utc_now_iso())
+        state.mark_equity(prices, tick_id)
         state.save(cfg["paths"]["state_file"])
         return
 
@@ -108,7 +121,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
                          log, f"per-position stop ({pnl:.3f})")
 
     # refresh equity after any stops
-    equity = state.mark_equity(prices, utc_now_iso())
+    equity = state.mark_equity(prices, tick_id)
 
     signals = score_universe(snapshot, cfg)
     for t, s in signals.items():
@@ -142,7 +155,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
         verdict = risk_gate.evaluate(
             token=token, action=d["action"], requested_size_pct=d["size_pct"],
             confidence=d["confidence"], token_risk_score=token_risk,
-            state=state, equity=equity, cfg=cfg,
+            state=state, equity=equity, cfg=cfg, now=now_ts,
         )
         if not verdict.approved:
             log.event("blocked", token=token, action=d["action"], reason=verdict.reason)
@@ -158,7 +171,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
     # Off-list/zero-trade days don't count; make one small maintenance trade if
     # the day would otherwise close with no activity.
     if (r.get("force_daily_trade") and state.trades_today == 0
-            and not state.halted and utc_hour() >= 22):
+            and not state.halted and hour >= 22):
         # pick the best-scoring TRADEABLE token (off-universe names don't count)
         cand = [s for s in signals.values() if s.token in tradeable]
         best = max(cand, key=lambda s: abs(s.score), default=None)
@@ -166,7 +179,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
         if tkn and state.cash_usd > r["min_portfolio_usd"]:
             verdict = risk_gate.evaluate(
                 token=tkn, action="buy", requested_size_pct=0.05, confidence=0.6,
-                token_risk_score=0, state=state, equity=equity, cfg=cfg,
+                token_risk_score=0, state=state, equity=equity, cfg=cfg, now=now_ts,
             )
             if verdict.approved:
                 _exec_and_log(executor, state, cfg, tick_id, tkn, "buy",
@@ -176,7 +189,7 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
                 log.event("maintenance_skipped", token=tkn, reason=verdict.reason)
 
     # final equity mark + persist
-    state.mark_equity(prices, utc_now_iso())
+    state.mark_equity(prices, tick_id)
     state.save(cfg["paths"]["state_file"])
 
 
