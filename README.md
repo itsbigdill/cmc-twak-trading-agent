@@ -24,10 +24,10 @@ Pure conservatism finishes mid-pack (no prize); blowing the DQ line scores zero.
 This agent maximizes return *subject to never touching the DQ line*.
 
 ### Official rules wired in (per FAQ)
-- Register on-chain before **22 Jun**: `twak compete register` (CLI) or `competition_register` (MCP), then submit the agent address + strategy explainer on DoraHacks.
-- Only the **149 eligible BEP-20 tokens** count — populate `config/eligible_tokens.txt` from the official list (off-list trades are ignored).
+- Register on-chain before the window: `twak compete register` (CLI) or `competition_register` (MCP). Contract [`0x212c61b9…29aed5`](https://bsctrace.com/address/0x212c61b9b72c95d95bf29cf032f5e5635629aed5) on BSC; on-chain deadline **25 Jun**. Then submit the agent address + strategy explainer on DoraHacks.
+- Only the **149 eligible BEP-20 tokens** count (`config/eligible_tokens.txt`) — off-list trades ignored. **BTC/BTCB and BNB are NOT eligible** → signal/regime only; **USDT is eligible** (cash leg). Trade targets are `twak.token_contracts` (eligible ∩ has-contract); a config test enforces this.
 - **Min 1 trade/day (7/week)**; hourly scoring; any hour starting with a **sub-$1 portfolio scores 0%** → keep capital deployed.
-- Ranked by **total return**, ~30% max-drawdown DQ. Self-funded mainnet wallet.
+- Ranked by **total return**, ~30% max-drawdown DQ. Self-funded mainnet wallet. TWAK is **spot-only** → long/cash strategy (no shorting).
 
 ## Architecture
 

@@ -104,12 +104,14 @@ twak:
   agent_wallet: true            # agent wallet mode = autonomous signing under rules
   chain: bsc
   agent_address: "0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19"
-  # BSC token contracts (destination tokens need a 0x address; USDT resolves by
-  # symbol as the quote/source leg). BNB is the gas reserve, not a trade target.
+  competition_contract: "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"  # BSC
+  # Trade targets = eligible (in the 149 list) AND have a BSC contract. NOTE:
+  # BTC/BTCB and BNB are NOT in the eligible list -> signal/regime only, never
+  # traded. USDT (in-scope) is the quote leg and resolves by symbol.
+  # Expand with more eligible liquid names using VERIFIED contracts only.
   token_contracts:
     CAKE: "0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82"
     ETH:  "0x2170Ed0880ac9A755fd29B2688956BD959F933F8"   # Binance-Peg ETH
-    BTCB: "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c"   # Bitcoin BEP20
   # password: read from OS keychain locally; set TWAK_WALLET_PASSWORD on a VPS.
 
 bnb_sdk:

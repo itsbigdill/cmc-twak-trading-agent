@@ -128,10 +128,16 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
     }
 
     decisions = decider.decide(snapshot, signals, portfolio, risk_limits)
+    tradeable = set(cfg["twak"]["token_contracts"])      # eligible + has a contract
 
     for d in decisions:
         token = d["token"]
         log.event("decision", **d)
+        # Off-universe guard: only opening trades in tradeable tokens count.
+        # (BTC/BNB are signal-only; their "buy" decisions are ignored here.)
+        if d["action"] == "buy" and token not in tradeable:
+            log.event("blocked", token=token, action="buy", reason="not_tradeable: off-universe")
+            continue
         token_risk = snapshot.get(token, {}).get("token_risk_score", 0)  # TWAK fills live
         verdict = risk_gate.evaluate(
             token=token, action=d["action"], requested_size_pct=d["size_pct"],
@@ -153,9 +159,10 @@ def run_tick(cfg, state, cmc, decider, executor, log) -> None:
     # the day would otherwise close with no activity.
     if (r.get("force_daily_trade") and state.trades_today == 0
             and not state.halted and utc_hour() >= 22):
-        best = max(signals.values(), key=lambda s: abs(s.score), default=None)
-        tkn = best.token if best else next(
-            (t for t in cfg["whitelist"] if t != cfg["quote_asset"]), None)
+        # pick the best-scoring TRADEABLE token (off-universe names don't count)
+        cand = [s for s in signals.values() if s.token in tradeable]
+        best = max(cand, key=lambda s: abs(s.score), default=None)
+        tkn = best.token if best else (next(iter(tradeable), None))
         if tkn and state.cash_usd > r["min_portfolio_usd"]:
             verdict = risk_gate.evaluate(
                 token=tkn, action="buy", requested_size_pct=0.05, confidence=0.6,
