@@ -1,0 +1,89 @@
+# ============================================================================
+#  BNB HACK Track 1 — Autonomous Trading Agent
+#  ALL limits live here. Nothing risk-related is hardcoded (NFR 1.3).
+#  Strategy is tuned for a RANK-BY-RETURN tournament with a hard drawdown DQ:
+#  be aggressive while healthy, de-risk automatically near the DQ line.
+# ============================================================================
+
+mode: dry_run            # dry_run | live   (live actually signs txs via TWAK)
+
+# --- Universe -------------------------------------------------------------
+# BSC-liquid whitelist. BTC/ETH used mainly for regime + as macro signal.
+whitelist: [BNB, CAKE, ETH, BTC, USDT]
+quote_asset: USDT        # cash leg
+
+# --- Loop -----------------------------------------------------------------
+poll_interval_minutes: 15
+rpc:
+  max_retries: 5
+  backoff_base_seconds: 2     # exponential: 2,4,8,16,32
+
+# --- Risk gate (F4) — enforced on EVERY trade, logged on block ------------
+risk:
+  # Position sizing
+  max_position_pct: 0.35        # max single position as frac of cash on entry
+  max_concentration_pct: 0.40   # max single asset as frac of total equity
+  min_confidence: 0.55          # LLM confidence below this -> hold
+
+  # Drawdown — the DQ gate. Judge DQ threshold ~30%; we keep a hard buffer.
+  daily_loss_stop_pct: 0.08     # halt opening trades if down >8% on the day
+  drawdown_hard_stop_pct: 0.20  # peak-to-now; >=20% -> CLOSE-ONLY (never near 30% DQ)
+  drawdown_dq_reference_pct: 0.30  # the judges' line, for logging headroom only
+
+  # Activity corridor: min trades to qualify, cap to avoid fee churn
+  min_trades_total: 10          # competition minimum over the live window
+  max_trades_per_day: 12        # avoid simulated-tx-cost bleed
+  min_seconds_between_trades: 120
+
+  # Execution safety
+  max_slippage_pct: 0.01        # 1% slippage cap on swaps
+  max_token_risk_score: 60      # TWAK token risk score (0=safe..100=risky); block above
+
+  # Perps (BSC perps allowed by Track 1 — leverage + shorting = our edge)
+  perps_enabled: true
+  max_leverage: 2.0             # conservative; shorting matters more than size
+  perps_only_in_trend: true     # only open perp positions in a clear regime, not chop
+
+# --- Signal engine (F2) — deterministic, judge-reproducible ---------------
+signal:
+  # Component weights (sum ~1.0). Few magic constants on purpose (anti-overfit).
+  weights:
+    rsi: 0.25
+    macd: 0.25
+    ema: 0.30
+    fear_greed: 0.10
+    news: 0.10
+  rsi_oversold: 30
+  rsi_overbought: 70
+  entry_threshold: 0.30         # |score| must exceed this to act
+  chop_dampen: 0.30             # multiply score by this in chop regime
+
+# --- Regime detection -----------------------------------------------------
+regime:
+  benchmark: BTC                # drives global regime
+  fear_extreme_low: 25
+  fear_extreme_high: 75
+
+# --- Decision layer (F3) --------------------------------------------------
+llm:
+  model: claude-sonnet-4-6      # hackathon Claude credits; sonnet for decisions
+  max_tokens: 1500
+  second_gate: true             # skeptical risk-officer LLM re-check (prompt 3.4)
+
+# --- Integrations ---------------------------------------------------------
+cmc:
+  mcp_url: https://mcp.coinmarketcap.com/mcp
+  # API key from env: CMC_MCP_API_KEY  (header X-CMC-MCP-API-KEY)
+
+twak:
+  agent_wallet: true            # agent wallet mode = autonomous signing under rules
+  network: bsc
+
+bnb_sdk:
+  agent_name: cmc-twak-trading-agent
+  enabled: true                 # ERC-8004 identity (testnet) for special prize
+
+# --- Persistence ----------------------------------------------------------
+paths:
+  state_file: state/portfolio.json
+  decision_log: logs/decisions.jsonl
