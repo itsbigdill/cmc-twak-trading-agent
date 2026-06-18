@@ -1,0 +1,8 @@
+{
+  "name": "cmc-twak-trading-agent",
+  "description": "Autonomous BSC trading agent: reads CoinMarketCap signals, decides via LLM under hard risk rules, executes swaps via Trust Wallet Agent Kit. Built for BNB Hack: AI Trading Agent Edition.",
+  "version": "0.3.0",
+  "protocolVersion": "0.3.0",
+  "capabilities": ["cmc-agent-hub-signals", "twak-agent-wallet-execution", "risk-gate", "cross-sectional-rotation"],
+  "skills": ["market-signal-ingestion", "deterministic-scoring", "risk-managed-execution"]
+}
