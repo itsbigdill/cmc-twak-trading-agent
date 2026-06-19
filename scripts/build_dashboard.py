@@ -190,9 +190,13 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 @media(max-width:840px){.g2,.g2c{grid-template-columns:1fr}}
 .mkt{display:flex;align-items:center;gap:34px;flex-wrap:wrap}
 .mkt .it{display:flex;flex-direction:column;gap:5px}
-.mkt .fg{flex:1;min-width:230px}
-.mkt .cell{background:var(--cell);border:1px solid var(--bd);border-radius:13px;padding:11px 16px}
-.mkv{font-size:19px;font-weight:700}
+.mkv{font-size:19px;font-weight:700;margin-top:5px}
+.mtop{display:flex;align-items:center;gap:13px;margin-bottom:16px}
+.fgblock{margin-bottom:18px;max-width:560px}
+.mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media(max-width:620px){.mstats{grid-template-columns:1fr}}
+.cell{background:var(--cell);border:1px solid var(--bd);border-radius:14px;padding:13px 16px}
+.regime{font-size:13px;font-weight:700;padding:6px 14px;border-radius:999px}
 .prow{display:flex;align-items:flex-end;gap:34px;flex-wrap:wrap;margin-top:8px}
 .holds{display:flex;gap:10px;flex-wrap:wrap;flex:1;justify-content:flex-end}
 .hchip{display:flex;align-items:center;gap:9px;background:var(--cell);border:1px solid var(--bd);border-radius:13px;padding:11px 16px;font-weight:600}
@@ -372,13 +376,15 @@ $('aid').textContent='#'+D.agent_id;$('addr').textContent=D.address.slice(0,6)+'
 const mk=D.market;
 if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
  const fl=mk.fg<25?'Extreme fear':mk.fg<45?'Fear':mk.fg<55?'Neutral':mk.fg<75?'Greed':'Extreme greed';
- $('market').innerHTML=`<div class="mkt">
-   <span class="regime" style="color:${col};background:${bg}">${nm}</span>
-   <div class="it fg"><div class="lab">Fear &amp; Greed — <b style="color:${col}">${mk.fg} · ${fl}</b></div>
-     <div class="fgbar"><i style="left:${mk.fg}%"></i></div></div>
-   <div class="it cell"><div class="lab">BTC dominance</div><div class="mkv num">${mk.dom}%</div></div>
-   <div class="it cell"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
-   <div class="it cell"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
+ $('market').innerHTML=`
+  <div class="mtop"><span class="regime" style="color:${col};background:${bg}">${nm}</span>
+    <span class="sub">market regime, read from CMC Agent Hub</span></div>
+  <div class="fgblock"><div class="lab">Fear &amp; Greed — <b style="color:${col}">${mk.fg} · ${fl}</b></div>
+    <div class="fgbar"><i style="left:${mk.fg}%"></i></div></div>
+  <div class="mstats">
+    <div class="cell"><div class="lab">BTC dominance</div><div class="mkv num">${mk.dom}%</div></div>
+    <div class="cell"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
+    <div class="cell"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
   </div>`;
  $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const w=Math.min(50,Math.abs(l.score)*50),p=l.score>=0;
    return `<div class="lr"><span class="rk">${i+1}</span>
