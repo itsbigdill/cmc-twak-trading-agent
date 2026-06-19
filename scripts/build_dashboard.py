@@ -305,6 +305,19 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .fchip.k b{color:var(--g)}
 .credit{text-align:center;color:var(--mut2);font-size:10.5px;margin-top:8px}
 .credit a{color:var(--b);text-decoration:none}.credit b{color:var(--mut)}
+/* tagline + hero framing + sponsors */
+.tagline{color:var(--mut);font-size:13px;line-height:1.5;padding:0 4px;max-width:680px}
+.tagline b{color:var(--tx);font-weight:600}
+.edge{font-size:52px;font-weight:800;letter-spacing:-1.6px;line-height:1;margin:4px 0 6px;
+ background:linear-gradient(96deg,#5ef0a8,#34d399);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.story{color:var(--tx);font-size:14px;font-weight:600;margin-bottom:2px}
+.grow{font-size:12.5px;color:var(--mut);margin-top:14px;line-height:1.7}
+.grow b{font-weight:700}
+.sponsors{display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
+ padding:16px 18px;background:var(--card);border:1px solid var(--bd);border-radius:16px;font-size:11.5px;color:var(--mut)}
+.sponsors b{color:var(--tx);font-weight:600}
+.sponsors .dot{color:var(--mut2)}
+.sponsors .x402{color:var(--b);font-weight:700}
 </style></head>
 <body><div class="wrap">
 
@@ -318,31 +331,33 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
   <div class="chips" id="chips"></div>
 </div>
 
-<div class="card">
-  <div class="lab">Portfolio · on-chain</div>
-  <div class="prow">
-    <div><div class="big num" id="pv">—</div><div class="sub" id="pvsub"></div></div>
-    <div id="holds" class="holds"></div>
-  </div>
-</div>
+<div class="tagline">Autonomous AI agent — reads <b>CoinMarketCap</b>, decides with <b>Gemini</b>, signs its own swaps on <b>BSC</b>.</div>
 
 <div class="card">
-  <div class="ph">Strategy track record <span id="trk"></span></div>
+  <div class="ph">Capital preservation <span id="trk"></span></div>
   <div class="trgrid">
     <div>
-      <div class="ret num" id="ret"></div>
-      <div class="sub" id="vsmkt"></div>
+      <div class="lab">Outperformance vs the market</div>
+      <div class="edge num" id="ret"></div>
       <div class="cmp" id="cmp"></div>
     </div>
     <div class="trstats">
       <div class="m"><span class="k">Max drawdown</span><span class="x pos num" id="dd"></span></div>
       <div class="m"><span class="k">DQ headroom</span><span class="x acc num" id="hr"></span></div>
-      <div class="m"><span class="k">Backtest trades</span><span class="x num" id="tr"></span></div>
+      <div class="m"><span class="k">Trades</span><span class="x num" id="tr"></span></div>
     </div>
   </div>
   <div class="ph" style="margin:26px 0 0"><span id="clab"></span><span id="cmeta"></span></div>
   <div class="cw" id="cw"><div class="tip" id="tip"></div></div>
   <div class="lg" id="lg"></div>
+</div>
+
+<div class="card">
+  <div class="lab">Portfolio · on-chain · self-funded</div>
+  <div class="prow">
+    <div><div class="big num" id="pv">—</div><div class="sub" id="pvsub"></div></div>
+    <div id="holds" class="holds"></div>
+  </div>
 </div>
 
 <div class="card" id="mcard">
@@ -357,6 +372,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
   <div id="activity"></div>
 </div>
 
+<div class="sponsors"><span>Powered by</span><b>CoinMarketCap Agent Hub</b><span class="dot">·</span><b>Trust Wallet Agent Kit</b><span class="dot">·</span><b>BNB ERC-8004</b><span class="dot">·</span><span class="x402">x402 micropayments</span></div>
 <div class="foot" id="cfg"></div>
 <div class="credit">ERC-8004 agent <b id="aid"></b> · <span id="addr"></span> ·
  <a href="https://github.com/DanMarteens/cmc-twak-trading-agent" target="_blank">source</a> · #CMCAgentHub</div>
@@ -383,9 +399,8 @@ $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
 const t=D.track,edge=(t.return_pct-t.buyhold_pct);
-$('trk').textContent=D.chart.label.replace('· ','');
-$('ret').textContent=(t.return_pct>=0?'+':'')+t.return_pct+'%';$('ret').className='ret num '+(t.return_pct>=0?'pos':'neg');
-$('vsmkt').innerHTML=`<b class="pos">+${edge.toFixed(0)} pts</b> vs market (equal-weight buy&amp;hold ${t.buyhold_pct}%)`;
+$('trk').textContent='1y backtest · real prices';
+$('ret').textContent='+'+edge.toFixed(1)+' pts';
 $('dd').textContent=t.maxdd_pct+'%';$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';$('tr').textContent=t.trades;
 (function(){const ar=Math.abs(t.return_pct),mr=Math.abs(t.buyhold_pct),mx=Math.max(ar,mr,1);
  $('cmp').innerHTML=`
