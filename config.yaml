@@ -149,6 +149,12 @@ twak:
     TWT:    "0x4B0F1812e5Df2A09796481Ff14017e6005508003"
   # password: read from OS keychain locally; set TWAK_WALLET_PASSWORD on a VPS.
 
+# --- x402 (pay-per-request data in the trade loop; TWAK x402 + CDP facilitator) -
+x402:
+  signal_url: ""              # set to the https x402 endpoint to enable in-loop payments
+  max_payment_atomic: 1000    # 0.001 USDC cap per request (6dp)
+  every_n_ticks: 4            # pay for the premium signal every Nth tick (not every tick)
+
 bnb_sdk:
   agent_name: cmc-twak-trading-agent
   enabled: true

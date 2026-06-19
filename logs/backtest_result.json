@@ -307,7 +307,7 @@
     112.9775,
     109.0687,
     106.5889,
-    106.8053
+    106.8991
   ],
   "kpis": {
     "initial": 200.0,
@@ -317,7 +317,7 @@
     "dq_pct": 30.0,
     "sharpe_like": -0.108,
     "trades": 180,
-    "buyhold_pct": -46.6
+    "buyhold_pct": -46.55
   },
   "positions": {},
   "cash": 170.04,
@@ -331,7 +331,7 @@
       "size_usd": 0.02,
       "tx_hash": "0xMOCKb2c11de723e834b0",
       "reason": "approved size=$0.02 (budget_mult=0.00, dd=0.150)",
-      "ts": "2026-06-19T15:29:46.593462+00:00"
+      "ts": "2026-06-19T15:45:23.724568+00:00"
     },
     {
       "kind": "fill",
@@ -340,7 +340,7 @@
       "size_usd": 0.02,
       "tx_hash": "0xMOCKdb56cbdec34b117a",
       "reason": "approved size=$0.02 (budget_mult=0.00, dd=0.150)",
-      "ts": "2026-06-19T15:29:46.596543+00:00"
+      "ts": "2026-06-19T15:45:23.728087+00:00"
     },
     {
       "kind": "fill",
@@ -349,7 +349,7 @@
       "size_usd": 0.0,
       "tx_hash": "0xMOCKd338d07a304e03df",
       "reason": "close_allowed",
-      "ts": "2026-06-19T15:29:46.605470+00:00"
+      "ts": "2026-06-19T15:45:23.736682+00:00"
     },
     {
       "kind": "fill",
@@ -358,7 +358,7 @@
       "size_usd": 0.0,
       "tx_hash": "0xMOCK79e4ebdec8167b26",
       "reason": "close_allowed",
-      "ts": "2026-06-19T15:29:46.608584+00:00"
+      "ts": "2026-06-19T15:45:23.739841+00:00"
     },
     {
       "kind": "fill",
@@ -367,7 +367,7 @@
       "size_usd": 0.09,
       "tx_hash": "0xMOCKb5ef4c7823b795df",
       "reason": "approved size=$0.09 (budget_mult=0.00, dd=0.150)",
-      "ts": "2026-06-19T15:29:46.614516+00:00"
+      "ts": "2026-06-19T15:45:23.745762+00:00"
     },
     {
       "kind": "fill",
@@ -376,7 +376,7 @@
       "size_usd": 0.0,
       "tx_hash": "0xMOCK5466184f757418ff",
       "reason": "per-position stop (-0.065)",
-      "ts": "2026-06-19T15:29:46.622579+00:00"
+      "ts": "2026-06-19T15:45:23.753657+00:00"
     },
     {
       "kind": "fill",
@@ -385,16 +385,16 @@
       "size_usd": 0.08,
       "tx_hash": "0xMOCKebe4444b2553755f",
       "reason": "approved size=$0.08 (budget_mult=0.00, dd=0.150)",
-      "ts": "2026-06-19T15:29:46.626838+00:00"
+      "ts": "2026-06-19T15:45:23.758017+00:00"
     },
     {
       "kind": "fill",
       "token": "STG",
       "action": "close",
       "size_usd": 0.0,
-      "tx_hash": "0xMOCK09a59e08c005b36c",
+      "tx_hash": "0xMOCKc5911e0497c3731b",
       "reason": "close_allowed",
-      "ts": "2026-06-19T15:29:46.632750+00:00"
+      "ts": "2026-06-19T15:45:23.764263+00:00"
     }
   ]
 }

@@ -58,6 +58,7 @@ class PortfolioState:
     open_orders: dict[str, Order] = field(default_factory=dict)
     equity_curve: list = field(default_factory=list)   # [[iso_ts, equity], ...]
     trade_count_total: int = 0
+    tick_n: int = 0             # total ticks processed (for periodic actions, e.g. x402)
     halted: bool = False        # kill switch tripped -> no trading for the window
     # per-day, keyed by UTC date string
     day: str = ""

@@ -69,6 +69,25 @@ def reconcile(state: PortfolioState, log: DecisionLog) -> None:
                   action=o.action, note="left PENDING by prior run; not resent")
 
 
+def _x402_signal(cfg, log) -> None:
+    """Pay-per-request for a premium market signal via TWAK x402 (CDP facilitator).
+    Real on-chain micro-payment as part of the trade loop (Best-TWAK rubric).
+    No-op unless x402.signal_url is configured."""
+    import subprocess
+    url = os.environ.get("X402_SIGNAL_URL") or cfg.get("x402", {}).get("signal_url")
+    if not url:
+        return
+    cap = str(cfg["x402"].get("max_payment_atomic", 1000))
+    try:
+        out = subprocess.run(["twak", "x402", "request", url, "--max-payment", cap,
+                              "--yes", "--json"], capture_output=True, text=True, timeout=90)
+        data = json.loads(out.stdout[out.stdout.find("{"):]) if "{" in out.stdout else {}
+        log.event("x402", url=url, tx=data.get("txHash") or data.get("hash"),
+                  paid=data.get("amountPaid") or cap, signal=data.get("data") or data)
+    except Exception as e:
+        log.event("x402_error", error=str(e))
+
+
 def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason, now=None) -> None:
     """Persist-before-send, execute, log fill or error, persist again."""
     state.save(cfg["paths"]["state_file"])      # idempotency: record intent first
@@ -108,6 +127,10 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     # roll day boundary + mark equity from current prices
     equity = state.mark_equity(prices, tick_id)
     state.roll_day(date_str, equity)
+    state.tick_n += 1
+    # pay-per-request premium signal via x402 every Nth tick (real micro-payment)
+    if state.tick_n % max(1, cfg.get("x402", {}).get("every_n_ticks", 4)) == 0:
+        _x402_signal(cfg, log)
     log.event("tick", tick_id=tick_id, equity=equity,
               drawdown=round(state.current_drawdown(equity), 4),
               dq_headroom=round(cfg["risk"]["drawdown_dq_reference_pct"]

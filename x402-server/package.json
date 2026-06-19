@@ -1,0 +1,14 @@
+{
+  "name": "cta-x402-server",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "x402-gated premium-signal endpoint for the CTA trading agent (Base mainnet, CDP facilitator)",
+  "dependencies": {
+    "@coinbase/x402": "^2.1.0",
+    "@x402/core": "^2.15.0",
+    "@x402/evm": "^2.15.0",
+    "@x402/express": "^2.15.0",
+    "express": "^4.21.0"
+  }
+}
