@@ -17,7 +17,7 @@ import hashlib
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Optional
 
 
@@ -108,6 +108,8 @@ class PortfolioState:
             self.day = utc_date
             self.day_start_equity = equity
             self.trades_today = 0
+            self.halted = False          # kill switch re-arms each UTC day (not a
+                                         # permanent window halt) so we can recover
 
     # ----- idempotent order lifecycle ---------------------------------------
     def begin_order(self, order: Order) -> None:
@@ -145,6 +147,13 @@ class PortfolioState:
             return cls()
         with open(path) as f:
             data = json.load(f)
-        data["positions"] = {k: Position(**v) for k, v in data.get("positions", {}).items()}
-        data["open_orders"] = {k: Order(**v) for k, v in data.get("open_orders", {}).items()}
-        return cls(**data)
+        # Tolerate schema drift: drop unknown keys so a field added/removed in a
+        # mid-window deploy can never crash-loop the agent on `cls(**data)`.
+        def _keep(d: dict, klass) -> dict:
+            allowed = {f.name for f in fields(klass)}
+            return {k: v for k, v in d.items() if k in allowed}
+        data["positions"] = {k: Position(**_keep(v, Position))
+                             for k, v in data.get("positions", {}).items()}
+        data["open_orders"] = {k: Order(**_keep(v, Order))
+                              for k, v in data.get("open_orders", {}).items()}
+        return cls(**_keep(data, cls))

@@ -1,49 +1,51 @@
 # Demo video script (~2.5 min)
 
-Goal: show a working end-to-end agent + all three sponsor integrations + honest
-results. Record screen + voiceover. Keep it fast.
+Goal: a working end-to-end agent + all three sponsors + honest results. Record
+screen + voiceover. Keep it fast and natural — talk, don't read.
 
 ## 0:00 — Hook (15s)
-> "An autonomous trading agent for BNB Hack. It reads CoinMarketCap Agent Hub
-> signals, decides on its own, and signs its own swaps on BSC via Trust Wallet
-> Agent Kit. The whole game is *most profit without blowing up* — so it's built
-> around a hard risk gate."
-
 Show the dashboard (`open dashboard/index.html`) full screen.
+> "Hey! Let me show you something that trades crypto on its own. No human clicking
+> buttons. It reads the market, makes the call, and signs its own swaps on-chain.
+> We built it for BNB Hack."
 
 ## 0:15 — CMC Agent Hub (30s)
-Run `python scripts/verify_cmc.py` → show the 12 tools.
-Run a live snapshot (or show a log line): BTC RSI / MACD / EMA, Fear & Greed,
-BTC dominance.
-> "Every decision starts here — CMC Agent Hub. Macro regime from Fear & Greed and
-> BTC dominance; per-token momentum on hourly bars."
+Run `python scripts/verify_cmc.py` → 12 tools. Then a live snapshot or a log line:
+BTC RSI / MACD / EMA, Fear & Greed, BTC dominance.
+> "Every decision starts at CoinMarketCap's Agent Hub. The agent reads the mood of
+> the market — Fear and Greed, Bitcoin dominance — and the momentum of each coin.
+> That's its eyes."
 
 ## 0:45 — Strategy + risk (40s)
 Show `agent/decision.py` (RotationDecider) and `agent/risk_gate.py`.
-> "Cross-sectional rotation: hold the strongest eligible tokens in an uptrend,
-> rotate to cash in a downtrend. Then one risk gate: per-position stop, daily
-> pause, and a kill switch at 15% drawdown — well under the 30% DQ. Position size
-> scales with how much room we have left to the DQ line."
+> "The idea is simple. In an uptrend, hold the strongest coins. In a downtrend,
+> step back to cash. And before any trade goes through, it passes a strict risk
+> gate — stop-losses, a daily pause, and a kill switch at 15% drawdown. Staying
+> alive matters more than being greedy."
 
 ## 1:25 — Proof: backtest + rule adherence (35s)
 Run `python scripts/backtest.py --policy rotation --universe core --period year`.
-> "Same code, real prices: minus 14% while the market fell minus 47%, max drawdown
-> 14% — never near the DQ line."
+> "Does it actually work? Same code, real prices. The market dropped 47%. We were
+> down 14 — and never came close to getting disqualified."
 Run `python -m agent.reporting` → point at blocked-trade reasons.
-> "Every blocked trade is logged with a reason — that's our rule-adherence audit."
+> "And every trade it refuses to make is logged with a reason. So you can check
+> its homework."
 
 ## 2:00 — TWAK execution + on-chain identity (25s)
 Show a live `twak swap --quote-only` quote, then `twak compete status`
 (registered) and the ERC-8004 `agentId`.
-> "Execution is real spot swaps via Trust Wallet Agent Kit. The agent is
-> registered on-chain for the competition and has an ERC-8004 identity — all three
-> sponsors, working together."
+> "The trades are real — spot swaps through Trust Wallet's Agent Kit. The agent is
+> registered on-chain for the competition, and it has its own on-chain identity.
+> All three sponsors, working as one."
 
 ## 2:25 — Close (10s)
-> "Open source, reproducible decision logs, running 24/7 for the live window.
-> CMC × Trust Wallet × BNB."
 Show the GitHub repo URL.
+> "It's open source, it logs every decision, and it's been running around the
+> clock. That's our agent — thanks for watching!"
 
 ---
+**Delivery tips:** smile when you say the hook and the close — it carries through
+the voice. Pause a beat between sections. Don't rush the numbers (47%, 14%).
+
 **B-roll to capture:** dashboard, a tick in `journalctl`/logs, the decisions.jsonl
 tail, `twak compete status` JSON, the repo.

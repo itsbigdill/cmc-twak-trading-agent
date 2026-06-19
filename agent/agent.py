@@ -78,13 +78,22 @@ def _x402_signal(cfg, log) -> None:
     url = os.environ.get("X402_SIGNAL_URL") or cfg.get("x402", {}).get("signal_url")
     if not url:
         return
+    import re
     cap = str(cfg["x402"].get("max_payment_atomic", 1000))
     try:
         out = subprocess.run(["twak", "x402", "request", url, "--max-payment", cap,
                               "--yes", "--json"], capture_output=True, text=True, timeout=90)
+        raw = (out.stdout or "") + (out.stderr or "")
         data = json.loads(out.stdout[out.stdout.find("{"):]) if "{" in out.stdout else {}
-        log.event("x402", url=url, tx=data.get("txHash") or data.get("hash"),
-                  paid=data.get("amountPaid") or cap, signal=data.get("data") or data)
+        # txHash for the on-chain settlement may live under various keys or only in
+        # twak's human output — fall back to scanning the raw text for a 0x tx hash.
+        tx = (data.get("txHash") or data.get("transactionHash") or data.get("hash")
+              or data.get("tx") or data.get("settlement"))
+        if not tx:
+            m = re.search(r"0x[0-9a-fA-F]{64}", raw)
+            tx = m.group(0) if m else None
+        log.event("x402", url=url, tx=tx, paid=data.get("amountPaid") or cap,
+                  signal=data.get("data") or data)
     except Exception as e:
         log.event("x402_error", error=str(e))
 
@@ -105,6 +114,17 @@ def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price,
 
 def _force_close(executor, state, cfg, tick_id, token, price, log, reason, now=None) -> None:
     _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0, price, log, reason, now=now)
+
+
+def _mark_px(prices, state, token) -> float:
+    """A safe price to value a close: the live price if we have one this tick,
+    else the position's entry price. Never 0 (a 0 mark realizes a phantom total
+    loss in bookkeeping and can cascade into a false kill)."""
+    px = prices.get(token, 0.0)
+    if px and px > 0:
+        return px
+    pos = state.positions.get(token)
+    return pos.avg_price if pos else 0.0
 
 
 def run_tick(cfg, state, cmc, decider, executor, log) -> None:
@@ -139,18 +159,21 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
 
     # --- LAYERED DE-RISK (in order of severity) -----------------------------
     if state.halted:
-        log.event("halted", note="kill switch tripped earlier; no trading")
+        log.event("halted", note="kill switch tripped today; paused until next UTC day")
         return
 
     r = cfg["risk"]
     dd = state.current_drawdown(equity)
 
-    # (3) Kill switch: peak-to-now drawdown at the kill line -> close all + halt.
+    # (3) Kill switch: peak-to-now drawdown at the kill line -> close all + pause
+    #     for the rest of the UTC day (roll_day re-arms it next day; NOT a
+    #     permanent halt — forfeiting a whole week on one intraday dip is the
+    #     worst move in a rank-by-return contest where the DQ line is 30%).
     if dd >= r["drawdown_kill_pct"]:
         log.event("kill_switch", drawdown=round(dd, 4), positions=list(state.positions),
-                  note=f"dd>={r['drawdown_kill_pct']} -> liquidate all + halt for window")
+                  note=f"dd>={r['drawdown_kill_pct']} -> liquidate all + pause for the day")
         for tkn in list(state.positions):
-            _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
+            _force_close(executor, state, cfg, tick_id, tkn, _mark_px(prices, state, tkn),
                          log, "kill switch", now=now_ts)
         state.halted = True
         state.mark_equity(prices, tick_id)
@@ -158,12 +181,17 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         return
 
     # (1) Per-position stop: cut individual losers before they grow the drawdown.
+    #     Only act on tokens with a REAL live price this tick — a missing/zero
+    #     price must never be read as a -100% move and trigger a false stop.
     for tkn in list(state.positions):
-        pnl = state.position_pnl_pct(tkn, prices.get(tkn, 0.0))
+        px = prices.get(tkn, 0.0)
+        if px <= 0:
+            continue
+        pnl = state.position_pnl_pct(tkn, px)
         if pnl <= -r["per_position_stop_pct"]:
             log.event("position_stop", token=tkn, pnl_pct=round(pnl, 4),
                       note=f"<= -{r['per_position_stop_pct']} -> close")
-            _force_close(executor, state, cfg, tick_id, tkn, prices.get(tkn, 0.0),
+            _force_close(executor, state, cfg, tick_id, tkn, px,
                          log, f"per-position stop ({pnl:.3f})", now=now_ts)
 
     # refresh equity after any stops
@@ -213,26 +241,41 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
                       verdict.adjusted_size_usd, prices.get(token, 0.0),
                       log, verdict.reason, now=now_ts)
 
-    # --- Guarantee the min-1-trade/day requirement late in the UTC day ------
-    # Off-list/zero-trade days don't count; make one small maintenance trade if
-    # the day would otherwise close with no activity.
+    # --- Guarantee the min-1-trade/day requirement during the UTC day -------
+    # Off-list/zero-trade days don't count. Trigger from 18:00 UTC (~24 retry
+    # ticks before midnight, not a single 2h band) and try several candidates so
+    # one blocked/illiquid name can't burn the day. If we can't BUY (low cash /
+    # daily pause), trim a position instead — a close also counts as a trade and
+    # needs no cash.
     if (r.get("force_daily_trade") and state.trades_today == 0
-            and not state.halted and hour >= 22):
-        # pick the best-scoring TRADEABLE token (off-universe names don't count)
-        cand = [s for s in signals.values() if s.token in tradeable]
-        best = max(cand, key=lambda s: abs(s.score), default=None)
-        tkn = best.token if best else (next(iter(tradeable), None))
-        if tkn and state.cash_usd > r["min_portfolio_usd"]:
-            verdict = risk_gate.evaluate(
-                token=tkn, action="buy", requested_size_pct=0.05, confidence=0.6,
-                token_risk_score=0, state=state, equity=equity, cfg=cfg, now=now_ts,
-            )
-            if verdict.approved:
-                _exec_and_log(executor, state, cfg, tick_id, tkn, "buy",
-                              verdict.adjusted_size_usd, prices.get(tkn, 0.0),
-                              log, "maintenance trade (min 1/day)", now=now_ts)
-            else:
-                log.event("maintenance_skipped", token=tkn, reason=verdict.reason)
+            and not state.halted and hour >= 18):
+        cands = sorted((s for s in signals.values() if s.token in tradeable),
+                       key=lambda s: abs(s.score), reverse=True)
+        done = False
+        if state.cash_usd > r["min_portfolio_usd"]:
+            for s in cands[:5]:                     # try the 5 strongest in turn
+                px = prices.get(s.token, 0.0)
+                if px <= 0:
+                    continue
+                verdict = risk_gate.evaluate(
+                    token=s.token, action="buy", requested_size_pct=0.05, confidence=0.6,
+                    token_risk_score=snapshot.get(s.token, {}).get("token_risk_score", 0),
+                    state=state, equity=equity, cfg=cfg, now=now_ts,
+                )
+                if verdict.approved:
+                    _exec_and_log(executor, state, cfg, tick_id, s.token, "buy",
+                                  verdict.adjusted_size_usd, px,
+                                  log, "maintenance trade (min 1/day)", now=now_ts)
+                    done = True
+                    break
+        if not done and state.positions:           # fall back: trim smallest holding
+            tkn = min(state.positions,
+                      key=lambda t: abs(state.positions[t].qty * state.positions[t].avg_price))
+            _force_close(executor, state, cfg, tick_id, tkn, _mark_px(prices, state, tkn),
+                         log, "maintenance trade (min 1/day, trim)", now=now_ts)
+            done = True
+        if not done:
+            log.event("maintenance_skipped", reason="no deployable cash and no positions to trim")
 
     # final equity mark + persist
     state.mark_equity(prices, tick_id)
@@ -249,7 +292,13 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
-    log = DecisionLog(cfg["paths"]["decision_log"])
+    # Attribute every logged action to the agent's ERC-8004 on-chain identity.
+    agent_id = str(cfg.get("bnb_sdk", {}).get("agent_id") or "") or None
+    log = DecisionLog(cfg["paths"]["decision_log"], agent_id=agent_id)
+    if agent_id:
+        log.event("identity", erc8004_agent_id=agent_id,
+                  agent_address=cfg.get("twak", {}).get("agent_address"),
+                  note="ERC-8004 on-chain identity; all actions below are attributed to it")
 
     if args.list_cmc_tools:
         cmc = build_cmc_client({**cfg, "mode": "live"})

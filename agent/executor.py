@@ -28,6 +28,8 @@ from .state import Order, PortfolioState, Position, make_order_id
 
 # --- position bookkeeping (shared) --------------------------------------------
 def _apply_spot_buy(state: PortfolioState, token: str, size_usd: float, price: float):
+    if price <= 0:
+        raise RuntimeError(f"refusing buy {token}: non-positive fill price {price}")
     qty = size_usd / price
     pos = state.positions.get(token) or Position(token=token)
     new_qty = pos.qty + qty
@@ -42,6 +44,8 @@ def _apply_close(state: PortfolioState, token: str, price: float):
     pos = state.positions.get(token)
     if not pos or pos.qty == 0:
         return
+    if price <= 0:
+        price = pos.avg_price        # no live mark -> value the close flat, not at 0
     if pos.is_perp:
         state.cash_usd += pos.qty * (price - pos.avg_price)   # realize perp pnl
     else:

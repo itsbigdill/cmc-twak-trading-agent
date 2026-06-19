@@ -26,11 +26,17 @@ def utc_hour() -> int:
 
 
 class DecisionLog:
-    def __init__(self, path: str):
+    def __init__(self, path: str, agent_id: str | None = None):
         self.path = path
+        # ERC-8004 on-chain identity. When set, every record is attributed to it,
+        # so the agent's on-chain identity is load-bearing (every action is signed
+        # by, and traceable to, this agentId) rather than minted-and-forgotten.
+        self.agent_id = agent_id
 
     def write(self, record: dict) -> None:
         record.setdefault("ts", utc_now_iso())
+        if self.agent_id:
+            record.setdefault("agent_id", self.agent_id)
         with open(self.path, "a") as f:
             f.write(json.dumps(record, default=str) + "\n")
 

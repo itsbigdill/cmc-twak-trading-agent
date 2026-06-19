@@ -24,10 +24,12 @@ rpc:
 
 # --- Risk gate (F4) — enforced on EVERY trade, logged on block ------------
 risk:
-  # Position sizing
-  max_position_pct: 0.20        # max single position as frac of cash on entry
-  max_concentration_pct: 0.40   # max single asset as frac of total equity
-  min_confidence: 0.55          # LLM confidence below this -> hold
+  # Position sizing — tuned AGGRESSIVE for a rank-by-return contest with a ~30% DQ:
+  # the optimal play is to use the drawdown budget, not hoard it. Concentrate in
+  # the strongest names while healthy; tournament sizing de-risks near the kill line.
+  max_position_pct: 0.24        # max single position as frac of cash on entry
+  max_concentration_pct: 0.45   # max single asset as frac of total equity
+  min_confidence: 0.52          # LLM confidence below this -> hold
 
   # Drawdown — layered defense (DQ is on peak-to-now max drawdown, ~30%).
   # 1) per-position stop: cut individual losers fast -> caps any one trade's
@@ -36,9 +38,12 @@ risk:
   #    (resets daily, so recovery is possible; we don't freeze the whole window).
   # 3) kill switch: peak-to-now drawdown hits the kill line -> close ALL + halt
   #    for the rest of the window. Final guard, set well under the DQ line.
-  per_position_stop_pct: 0.04   # close a position down >4% from entry (cut losers fast)
-  daily_loss_stop_pct: 0.08     # pause new entries for the rest of the UTC day
-  drawdown_kill_pct: 0.15       # peak-to-now; close all + halt (buffer under ~30% DQ)
+  per_position_stop_pct: 0.08   # close a position down >8% from entry. Wider than the old
+                                # 4% (which whipsawed winners back to cash in chop), tighter
+                                # than 10% (which bled too much in sustained downtrends).
+  daily_loss_stop_pct: 0.10     # pause new entries for the rest of the UTC day
+  drawdown_kill_pct: 0.20       # peak-to-now; close all + pause for the DAY (re-arms next
+                                # UTC day, NOT a permanent halt). 10pt buffer under ~30% DQ.
   drawdown_dq_reference_pct: 0.30  # the judges' line, for logging headroom only
 
   # Activity corridor (per official FAQ): min 1 trade/day, 7 over the week.
@@ -72,10 +77,12 @@ signal:
     fear_greed: 0.10
     news: 0.10
     funding: 0.10        # CMC derivatives funding rate, contrarian (0 in price-only backtest)
-  funding_scale: 0.05    # funding % that maps to a full ±1 contribution
+  funding_scale: 0.01    # funding rate that maps to a full ±1 contribution (CMC returns
+                         # ~0.002 typical, ~0.005+ crowded; 0.01 keeps it a bounded tilt)
   rsi_oversold: 30
   rsi_overbought: 70
-  entry_threshold: 0.30         # |score| must exceed this to act
+  entry_threshold: 0.25         # |score| must exceed this to act (lower = participate more,
+                                # but too low churns in chop; 0.25 is the tuned middle)
   chop_dampen: 0.30             # multiply score by this in chop regime
   history_period: week          # twak price history window for live TA (~3h bars)
 
@@ -90,9 +97,11 @@ decision:
   policy: rotation          # rotation | threshold
   rotation_top_k: 5         # hold the K strongest tokens by momentum (uptrend)
   rotation_min_momentum: 0.05  # only rotate into positive-momentum names
-  rotation_downtrend_topk: 0       # downtrend = cash (defensive; backtested -11% vs -15% counter-trend).
-                                   # set to 1-2 to ride strong counter-trend names (more activity, worse in downturns)
-  rotation_downtrend_min_momentum: 0.25  # ...and only if momentum is strong
+  rotation_downtrend_topk: 1       # downtrend = ride only the 1 strongest relative-strength
+                                   # name (NOT 100% cash: a cash week scores ~0% in a rank-by-
+                                   # return contest). Backtest: this BEAT pure-cash in the bear
+                                   # year (-9.7% vs -12.6%). Stops + daily pause + kill cap risk.
+  rotation_downtrend_min_momentum: 0.20  # ...and only if momentum is clearly positive
 
 llm:
   model: claude-sonnet-4-6      # hackathon Claude credits; sonnet for decisions

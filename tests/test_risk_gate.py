@@ -31,12 +31,12 @@ def test_kill_switch_blocks_opening(cfg):
 
 
 def test_daily_pause_blocks_opening(cfg):
-    # 10% down on the day but only 10% peak-to-now (under the 25% kill) -> pause
+    # 15% down on the day, but only 15% peak-to-now (under the 24% kill) -> pause
     s = _fresh_state(cash=1000, peak=1000)
     s.day_start_equity = 1000
     res = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
-        token_risk_score=10, state=s, equity=900.0, cfg=cfg, now=10_000,
+        token_risk_score=10, state=s, equity=850.0, cfg=cfg, now=10_000,
     )
     assert not res.approved
     assert "daily_pause" in res.reason
@@ -102,8 +102,8 @@ def test_trade_rate_limit(cfg):
 
 def test_concentration_cap_shrinks(cfg):
     s = _fresh_state(cash=1000, peak=1000)
-    # already holding 350 of CAKE; cap is 40% of 1000 = 400 -> only 50 more allowed
-    s.positions["CAKE"] = Position(token="CAKE", qty=350.0, avg_price=1.0)
+    # already holding 400 of CAKE; cap is 45% of 1000 = 450 -> only 50 more allowed
+    s.positions["CAKE"] = Position(token="CAKE", qty=400.0, avg_price=1.0)
     res = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.35, confidence=0.9,
         token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
