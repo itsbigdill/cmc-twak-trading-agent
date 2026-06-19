@@ -12,3 +12,4 @@ venv/
 .pytest_cache/
 .DS_Store
 *.tmp
+dashboard/index.html
