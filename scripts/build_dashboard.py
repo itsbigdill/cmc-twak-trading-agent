@@ -140,7 +140,7 @@ def build_data(with_wallet=True, with_market=True):
     if live:
         st = json.load(open(os.path.join(ROOT, cfg["paths"]["state_file"])))
         curve = st.get("equity_curve", [])
-    if live and len(curve) >= 10:
+    if live and len(curve) >= 5:
         lbl = "Live equity" if mode == "live" else "Paper equity · real signals"
         chart = {"dates": [c[0][:10] for c in curve], "equity": [round(c[1], 4) for c in curve],
                  "benchmark": [], "label": lbl}
