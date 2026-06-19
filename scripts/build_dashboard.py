@@ -331,13 +331,19 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
   <div class="chips" id="chips"></div>
 </div>
 
-<div class="tagline">Autonomous AI agent — reads <b>CoinMarketCap</b>, decides with <b>Gemini</b>, signs its own swaps on <b>BSC</b>.</div>
+<div class="card">
+  <div class="lab">Portfolio</div>
+  <div class="prow">
+    <div><div class="big num" id="pv">—</div><div class="sub" id="pvsub"></div></div>
+    <div id="holds" class="holds"></div>
+  </div>
+</div>
 
 <div class="card">
-  <div class="ph">Capital preservation <span id="trk"></span></div>
+  <div class="ph">Performance <span id="trk"></span></div>
   <div class="trgrid">
     <div>
-      <div class="lab">Outperformance vs the market</div>
+      <div class="lab">vs the market</div>
       <div class="edge num" id="ret"></div>
       <div class="cmp" id="cmp"></div>
     </div>
@@ -350,14 +356,6 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
   <div class="ph" style="margin:26px 0 0"><span id="clab"></span><span id="cmeta"></span></div>
   <div class="cw" id="cw"><div class="tip" id="tip"></div></div>
   <div class="lg" id="lg"></div>
-</div>
-
-<div class="card">
-  <div class="lab">Portfolio · on-chain · self-funded</div>
-  <div class="prow">
-    <div><div class="big num" id="pv">—</div><div class="sub" id="pvsub"></div></div>
-    <div id="holds" class="holds"></div>
-  </div>
 </div>
 
 <div class="card" id="mcard">
