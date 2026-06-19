@@ -130,8 +130,9 @@ def build_data(with_wallet=True, with_market=True):
         "blocked": len([r for r in rows if r.get("kind") == "blocked"]),
         "activity": [
             {"kind": r.get("kind"), "token": r.get("token", ""), "action": r.get("action", ""),
-             "reason": (r.get("reason") or r.get("note") or "")[:60], "tx": r.get("tx_hash") or r.get("tx"),
-             "ts": (r.get("ts") or "")[11:19]}
+             "reason": (r.get("reason") or r.get("note") or "")[:70], "tx": r.get("tx_hash") or r.get("tx"),
+             "logo": _logo(r.get("token", ""), cfg["twak"]["token_contracts"].get(r.get("token", ""))),
+             "ts": (r.get("ts") or "")[11:16]}
             for r in rows if r.get("kind") in ("fill", "blocked", "x402", "position_stop", "kill_switch")
         ][-12:][::-1],
     }
@@ -198,12 +199,13 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 .hchip .ha{color:var(--mut);font-weight:500;font-size:12px;margin-left:2px}
 .leadgrid{display:grid;grid-template-columns:1fr 1fr;gap:2px 30px}
 @media(max-width:720px){.leadgrid{grid-template-columns:1fr}}
-.act{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px}
+.act{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px}
 .act:last-child{border:0}
-.act .kd{font-weight:600;width:96px}
+.act .kd{font-weight:700;width:62px;font-size:11px;letter-spacing:.3px}
+.act .tkn{width:56px;font-weight:600}
 .act .rs{flex:1;color:var(--mut)}
 .act .tm{color:var(--mut2);font-size:11px;font-variant-numeric:tabular-nums}
-.act a{color:var(--b);text-decoration:none}
+.act a{color:var(--b);text-decoration:none;font-weight:600}
 .lab{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--mut);font-weight:600}
 .head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
 .title{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
@@ -386,13 +388,32 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
 }else $('mcard').style.display='none';
 
 // recent activity / decision log
+function actClean(a){
+ if(a.kind==='fill'){const m=(a.reason||'').match(/\$[\d.]+/);return (a.action==='buy'?'entered':'exited')+(m?' '+m[0]:'');}
+ if(a.kind==='blocked'){const r=a.reason||'';
+  if(r.includes('min_seconds'))return 'rate-limited';
+  if(r.includes('daily_pause'))return 'daily pause (risk-off)';
+  if(r.includes('drawdown_kill'))return 'kill switch';
+  if(r.includes('concentration'))return 'concentration cap';
+  if(r.includes('not_tradeable'))return 'off-universe';
+  if(r.includes('low_confidence'))return 'low confidence';
+  if(r.includes('max_trades'))return 'daily trade cap';
+  if(r.includes('token_risk'))return 'token risk too high';
+  return r.split(':')[0];}
+ if(a.kind==='x402')return 'paid $0.001 for premium signal';
+ if(a.kind==='position_stop')return 'per-position stop';
+ if(a.kind==='kill_switch')return 'kill switch · liquidate all';
+ return a.reason||'';}
 $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
- const col=a.kind==='fill'?'var(--g)':a.kind==='blocked'?'var(--mut)':a.kind==='x402'?'var(--b)':'var(--r)';
+ const isBuy=a.kind==='fill'&&a.action==='buy', isClose=a.kind==='fill'&&(a.action==='close'||a.action==='sell');
+ const col=isBuy?'var(--g)':isClose?'var(--b)':a.kind==='blocked'?'var(--am)':a.kind==='x402'?'var(--b)':'var(--r)';
+ const tag=isBuy?'BUY':isClose?'CLOSE':a.kind==='blocked'?'BLOCKED':a.kind==='x402'?'X402':a.kind.replace('_',' ').toUpperCase();
+ const real=a.tx&&(''+a.tx).startsWith('0x')&&!(''+a.tx).startsWith('0xMOCK');
  const ex=a.kind==='x402'?'https://basescan.org/tx/':'https://bscscan.com/tx/';
- const link=(a.tx&&(''+a.tx).startsWith('0x'))?` · <a href="${ex}${a.tx}" target="_blank">tx ↗</a>`:'';
- const label=a.kind==='fill'?((a.action||'').toUpperCase()+' '+a.token):a.kind==='blocked'?('blocked '+a.token):a.kind==='x402'?'x402 paid':a.kind.replace('_',' ');
- return `<div class="act"><span class="kd" style="color:${col}">${label}</span><span class="rs">${a.reason}${link}</span><span class="tm">${a.ts}</span></div>`;
-}).join('')||'<div class="rs" style="color:var(--mut2);font-size:12.5px">Holding cash in the downtrend. Maintenance trade keeps the daily minimum; rotations resume when the market turns up.</div>';
+ const link=real?` <a href="${ex}${a.tx}" target="_blank">↗</a>`:'';
+ const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="this.style.visibility='hidden'"/>`:'<span style="width:17px;display:inline-block"></span>';
+ return `<div class="act">${ic}<span class="kd" style="color:${col}">${tag}</span><span class="tkn">${a.token||''}</span><span class="rs">${actClean(a)}${link}</span><span class="tm">${a.ts}</span></div>`;
+}).join('')||'<div class="rs" style="color:var(--mut2);font-size:12.5px;padding:8px 0">Holding cash in the downtrend (capital preserved). Rotations resume when the market turns up; a maintenance trade keeps the daily minimum.</div>';
 
 // ---- chart (redesigned: y-axis ticks, baseline, perf-colored, hover pill) ----
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
