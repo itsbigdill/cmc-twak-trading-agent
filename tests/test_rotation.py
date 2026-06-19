@@ -26,6 +26,9 @@ def test_rotation_picks_top_k_in_uptrend(cfg):
 
 
 def test_rotation_downtrend_holds_strong_exits_weak(cfg):
+    # exercise the counter-trend code path regardless of the config default
+    cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_topk": 2,
+                               "rotation_downtrend_min_momentum": 0.2}}
     d = RotationDecider(cfg)
     # downtrend: a strongly-positive name is ridden (counter-trend), a weak one cut
     signals = {"ETH": _sig("ETH", 0.8, Regime.TREND_DOWN),   # strong -> keep

@@ -25,7 +25,7 @@ rpc:
 # --- Risk gate (F4) — enforced on EVERY trade, logged on block ------------
 risk:
   # Position sizing
-  max_position_pct: 0.34        # max single position as frac of cash on entry
+  max_position_pct: 0.20        # max single position as frac of cash on entry
   max_concentration_pct: 0.40   # max single asset as frac of total equity
   min_confidence: 0.55          # LLM confidence below this -> hold
 
@@ -88,10 +88,11 @@ regime:
 # --- Decision policy (F3) -------------------------------------------------
 decision:
   policy: rotation          # rotation | threshold
-  rotation_top_k: 3         # hold the K strongest tokens by momentum (uptrend)
+  rotation_top_k: 5         # hold the K strongest tokens by momentum (uptrend)
   rotation_min_momentum: 0.05  # only rotate into positive-momentum names
-  rotation_downtrend_topk: 2       # downtrend: ride only the strongest counter-trend names
-  rotation_downtrend_min_momentum: 0.2  # ...and only if momentum is strong
+  rotation_downtrend_topk: 0       # downtrend = cash (defensive; backtested -11% vs -15% counter-trend).
+                                   # set to 1-2 to ride strong counter-trend names (more activity, worse in downturns)
+  rotation_downtrend_min_momentum: 0.25  # ...and only if momentum is strong
 
 llm:
   model: claude-sonnet-4-6      # hackathon Claude credits; sonnet for decisions

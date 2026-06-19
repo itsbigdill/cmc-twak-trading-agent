@@ -346,9 +346,10 @@ const fmt=s=>{if(!s)return'';const d=s.split('-');return MON[(+d[1]||1)-1]+' '+(
   for(let i=0;i<pts.length-1;i++){const a=pts[i-1]||pts[i],b=pts[i],e=pts[i+1],f=pts[i+2]||e;
   d+=`C${(b[0]+(e[0]-a[0])/6).toFixed(1)} ${(b[1]+(e[1]-a[1])/6).toFixed(1)},${(e[0]-(f[0]-b[0])/6).toFixed(1)} ${(e[1]-(f[1]-b[1])/6).toFixed(1)},${e[0].toFixed(1)} ${e[1].toFixed(1)}`;}return d;}
  const eP=c.equity.map((v,i)=>[X(i),Y(v)]),eD=sm(eP);
+ const ydec=(mx-mn)<2?3:(mx-mn)<20?2:0;
  let ticks='';for(let k=0;k<=3;k++){const v=mn+(mx-mn)*k/3,y=Y(v);
   ticks+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.05)"/>
-  <text x="${W-R+8}" y="${(y+3).toFixed(1)}" fill="var(--mut2)" font-size="10">$${v.toFixed(0)}</text>`;}
+  <text x="${W-R+8}" y="${(y+3).toFixed(1)}" fill="var(--mut2)" font-size="10">$${v.toFixed(ydec)}</text>`;}
  const base=Y(c.equity[0]);
  $('clab').textContent=c.label;$('cmeta').textContent=N+' points';
  $('lg').innerHTML=`<span><i style="background:${col}"></i>Agent</span>`+(hasB?`<span><i style="background:var(--r)"></i>Market (buy&amp;hold)</span>`:'')+`<span><i style="background:var(--mut2)"></i>start</span>`;
