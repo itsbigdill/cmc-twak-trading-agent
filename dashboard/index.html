@@ -1,154 +1,151 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>CMC-TWAK Trading Agent — Performance</title>
+<meta http-equiv="refresh" content="60"/>
+<title>CMC-TWAK Agent</title>
 <style>
-:root{--bg:#0a0e17;--surf:#131a28;--surf2:#1b2435;--line:#27314a;--txt:#e8edf7;
---mut:#8a96ad;--grn:#2fd27e;--red:#ff5d6c;--blu:#4d8dff;--amb:#ffb547;--vio:#9b8cff}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font-family:'Inter',system-ui,-apple-system,sans-serif;
-padding:28px;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1040px;margin:0 auto}
-.top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
-.brand h1{font-size:23px;font-weight:650;letter-spacing:-.3px}
-.brand p{color:var(--mut);font-size:13px;margin-top:4px}
-.badges{display:flex;gap:8px;flex-wrap:wrap}
-.badge{background:var(--surf2);border:1px solid var(--line);border-radius:999px;
-padding:6px 12px;font-size:12px;font-weight:550;color:var(--mut)}
-.badge.on{color:var(--grn);border-color:rgba(47,210,126,.35)}
-.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
-.card{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
-.card .lab{color:var(--mut);font-size:12px;font-weight:550;text-transform:uppercase;letter-spacing:.5px}
-.card .val{font-size:26px;font-weight:700;margin-top:8px;font-variant-numeric:tabular-nums}
-.card .sub{color:var(--mut);font-size:12px;margin-top:4px}
-.pos{color:var(--grn)}.neg{color:var(--red)}.hero-num{font-size:30px}
-.cols{display:grid;grid-template-columns:2fr 1fr;gap:14px}
-.panel{background:var(--surf);border:1px solid var(--line);border-radius:14px;padding:18px}
-.panel h2{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
-.panel h2 span{color:var(--mut);font-size:12px;font-weight:500}
-.legend{display:flex;gap:16px;font-size:12px;color:var(--mut);margin-top:6px}
-.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
-.row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px}
-.row:last-child{border:0}.row .t{color:var(--mut)}
-.gauge{height:10px;background:var(--surf2);border-radius:999px;overflow:hidden;margin:10px 0 6px}
-.gauge>i{display:block;height:100%;background:linear-gradient(90deg,var(--grn),var(--amb))}
-.tag{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--surf2);color:var(--mut);font-weight:600}
-.foot{margin-top:20px;color:var(--mut);font-size:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
-.foot b{color:var(--blu)}
-@media(max-width:760px){.grid{grid-template-columns:repeat(2,1fr)}.cols{grid-template-columns:1fr}}
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;font-family:'Inter',system-ui,-apple-system,sans-serif;color:#eef2ff;
+background:#070b18;background-image:
+ radial-gradient(900px 500px at 12% -5%,rgba(77,141,255,.22),transparent 60%),
+ radial-gradient(800px 500px at 95% 0%,rgba(155,140,255,.18),transparent 55%),
+ radial-gradient(700px 600px at 60% 110%,rgba(47,210,126,.14),transparent 55%);
+background-attachment:fixed;padding:32px 20px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto}
+.head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:26px}
+.title{font-size:20px;font-weight:650;letter-spacing:-.3px;display:flex;align-items:center;gap:10px}
+.live{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:#2fd27e;
+background:rgba(47,210,126,.12);border:1px solid rgba(47,210,126,.3);padding:6px 12px;border-radius:999px}
+.live i{width:8px;height:8px;border-radius:50%;background:#2fd27e;box-shadow:0 0 0 0 rgba(47,210,126,.6);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(47,210,126,.5)}70%{box-shadow:0 0 0 9px rgba(47,210,126,0)}100%{box-shadow:0 0 0 0 rgba(47,210,126,0)}}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12px;font-weight:550;color:#aab6d8;background:rgba(255,255,255,.05);
+border:1px solid rgba(255,255,255,.1);padding:6px 12px;border-radius:999px;backdrop-filter:blur(8px)}
+.chip b{color:#eef2ff}
+.glass{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:20px;
+backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:0 8px 40px rgba(0,0,0,.3);
+transition:transform .25s,border-color .25s}
+.glass:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.2)}
+.grid{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;margin-bottom:16px}
+.hero{padding:26px 28px}
+.lab{font-size:12px;letter-spacing:.6px;text-transform:uppercase;color:#8a97c0;font-weight:600}
+.big{font-size:46px;font-weight:750;letter-spacing:-1px;margin:6px 0 2px;
+background:linear-gradient(90deg,#fff,#bcd0ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{color:#8a97c0;font-size:13px}
+.hold{margin-top:18px;display:flex;flex-direction:column;gap:8px}
+.h-row{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-radius:12px;
+background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}
+.h-row .s{font-weight:600}.h-row .a{color:#aab6d8;font-size:13px;font-variant-numeric:tabular-nums}
+.stat{padding:22px 24px;display:flex;flex-direction:column;justify-content:center}
+.stat .v{font-size:34px;font-weight:750;letter-spacing:-.5px;margin-top:8px;font-variant-numeric:tabular-nums}
+.pos{color:#2fd27e}.neg{color:#ff6b78}.accent{color:#7ea6ff}
+.row2{display:grid;grid-template-columns:2fr 1fr;gap:16px}
+.panel{padding:22px 24px}
+.panel h2{font-size:13px;font-weight:600;color:#cdd7f5;margin-bottom:4px;display:flex;justify-content:space-between}
+.panel h2 span{color:#8a97c0;font-weight:500}
+.mini{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.mini .m{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:14px 16px}
+.mini .m .k{font-size:11px;color:#8a97c0;text-transform:uppercase;letter-spacing:.4px}
+.mini .m .x{font-size:22px;font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums}
+.foot{margin-top:18px;text-align:center;color:#6b779c;font-size:12px}
+.foot a{color:#7ea6ff;text-decoration:none}
+@media(max-width:820px){.grid,.row2{grid-template-columns:1fr}.big{font-size:38px}}
 </style></head>
 <body><div class="wrap">
-<div class="top">
-  <div class="brand">
-    <h1>🤖 CMC-TWAK Autonomous Trading Agent</h1>
-    <p id="byline">BNB Hack: AI Trading Agent Edition · live on BSC</p>
-  </div>
-  <div class="badges" id="badges"></div>
+<div class="head">
+  <div class="title">🤖 CMC-TWAK Agent
+    <span class="live"><i></i><span id="mode">DRY-RUN</span></span></div>
+  <div class="chips" id="chips"></div>
 </div>
-<div class="grid" id="kpis"></div>
-<div class="cols">
-  <div class="panel">
-    <h2>Equity vs. equal-weight buy &amp; hold <span id="chartmeta"></span></h2>
-    <div id="chart"></div>
-    <div class="legend">
-      <span><i class="dot" style="background:var(--grn)"></i>Agent</span>
-      <span><i class="dot" style="background:var(--red)"></i>Buy &amp; hold (market)</span>
+
+<div class="grid">
+  <div class="glass hero">
+    <div class="lab">Portfolio value · on-chain</div>
+    <div class="big" id="pv">—</div>
+    <div class="sub" id="pvsub"></div>
+    <div class="hold" id="holds"></div>
+  </div>
+  <div class="glass stat">
+    <div class="lab">Strategy track record <span class="sub" id="trk"></span></div>
+    <div class="v pos" id="ret"></div>
+    <div class="sub" id="vsmkt"></div>
+    <div class="mini">
+      <div class="m"><div class="k">Max drawdown</div><div class="x pos" id="dd"></div></div>
+      <div class="m"><div class="k">DQ headroom</div><div class="x accent" id="hr"></div></div>
     </div>
   </div>
-  <div class="panel">
-    <h2>Risk &amp; rules</h2>
-    <div style="font-size:12px;color:var(--mut)">Drawdown headroom to DQ line</div>
-    <div class="gauge"><i id="ddbar"></i></div>
-    <div style="font-size:12px;color:var(--mut);margin-bottom:14px"><span id="ddtxt"></span></div>
-    <div id="rules"></div>
+</div>
+
+<div class="row2">
+  <div class="glass panel">
+    <h2><span id="chartlab"></span><span id="chartmeta"></span></h2>
+    <div id="chart"></div>
+  </div>
+  <div class="glass panel">
+    <h2>Risk engine <span>armed</span></h2>
+    <div class="mini" style="grid-template-columns:1fr;gap:10px">
+      <div class="m"><div class="k">Strategy</div><div class="x accent" id="pol" style="font-size:18px"></div></div>
+      <div class="m"><div class="k">Per-position stop</div><div class="x" id="stop" style="font-size:18px"></div></div>
+      <div class="m"><div class="k">Kill switch</div><div class="x" id="kill" style="font-size:18px"></div></div>
+      <div class="m"><div class="k">Trades blocked by rules</div><div class="x" id="blk" style="font-size:18px"></div></div>
+    </div>
   </div>
 </div>
-<div class="cols" style="margin-top:14px">
-  <div class="panel">
-    <h2>Recent decisions <span>signal → action → reason</span></h2>
-    <div id="fills"></div>
-  </div>
-  <div class="panel">
-    <h2>Holdings</h2>
-    <div id="holdings"></div>
-  </div>
-</div>
+
 <div class="foot">
-  <span>Signals: <b>#CMCAgentHub</b> (12 MCP tools) · Execution: Trust Wallet Agent Kit · Identity: ERC-8004</span>
-  <span id="ts"></span>
+  ERC-8004 agent <b id="aid"></b> · <span id="addr"></span> ·
+  <a href="https://github.com/DanMarteens/cmc-twak-trading-agent" target="_blank">source</a> ·
+  #CMCAgentHub · auto-refresh 60s
 </div>
 </div>
 <script>
-const D={"generated": "2026-06-19", "policy": "rotation", "universe": "core", "tokens": ["ETH", "XRP", "TRX", "DOGE", "ADA", "LINK", "BCH", "LTC", "DOT", "ATOM", "FIL", "INJ", "CAKE", "ZRO", "LDO", "PENDLE", "AXS", "TWT", "COMP", "BAT", "APE", "1INCH", "SNX", "SUSHI", "YFI", "ZIL", "ROSE", "ZETA", "ACH", "ELF", "AIOZ", "BRETT", "TOSHI", "STG", "RAY", "PENGU", "ZEC"], "period": "year", "dates": ["2025-10-08", "2025-10-11", "2025-10-14", "2025-10-17", "2025-10-20", "2025-10-23", "2025-10-26", "2025-10-29", "2025-11-01", "2025-11-04", "2025-11-07", "2025-11-10", "2025-11-13", "2025-11-16", "2025-11-19", "2025-11-22", "2025-11-25", "2025-11-28", "2025-12-01", "2025-12-04", "2025-12-07", "2025-12-10", "2025-12-13", "2025-12-16", "2025-12-19", "2025-12-22", "2025-12-25", "2025-12-28", "2025-12-31", "2026-01-03", "2026-01-06", "2026-01-09", "2026-01-12", "2026-01-15", "2026-01-18", "2026-01-21", "2026-01-24", "2026-01-27", "2026-01-30", "2026-02-02", "2026-02-05", "2026-02-08", "2026-02-11", "2026-02-14", "2026-02-17", "2026-02-20", "2026-02-23", "2026-02-26", "2026-03-01", "2026-03-04", "2026-03-07", "2026-03-10", "2026-03-13", "2026-03-16", "2026-03-19", "2026-03-22", "2026-03-25", "2026-03-28", "2026-03-31", "2026-04-03", "2026-04-06", "2026-04-09", "2026-04-12", "2026-04-15", "2026-04-18", "2026-04-21", "2026-04-24", "2026-04-27", "2026-04-30", "2026-05-03", "2026-05-06", "2026-05-09", "2026-05-12", "2026-05-15", "2026-05-18", "2026-05-21", "2026-05-24", "2026-05-27", "2026-05-30", "2026-06-02", "2026-06-05", "2026-06-08", "2026-06-11", "2026-06-14", "2026-06-17", "2026-06-18", "2026-06-19"], "equity": [19.9859, 18.9868, 19.0658, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9518, 19.0942, 18.618, 18.2973, 18.3844, 18.2541, 17.9356, 17.599, 17.7925, 17.5936, 17.4215, 17.3577, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249], "benchmark": [20.0, 17.7565, 19.4717, 19.219, 19.9815, 18.9073, 18.9547, 18.6445, 18.9225, 17.9139, 18.4324, 17.8596, 17.3746, 16.8301, 16.2314, 15.9443, 15.221, 14.752, 14.2448, 13.7658, 13.4676, 13.5611, 13.2124, 13.0153, 13.1706, 13.037, 12.7732, 13.0797, 12.4933, 13.0851, 13.3574, 13.1374, 13.0311, 13.4884, 13.5259, 13.5081, 13.6964, 13.6327, 13.322, 13.1532, 12.352, 12.249, 12.4144, 12.5524, 11.8997, 11.63, 11.6093, 11.5582, 11.6041, 11.7313, 11.8302, 11.944, 11.858, 12.1866, 12.271, 12.151, 12.2198, 12.3187, 12.5178, 12.5101, 12.2717, 12.3394, 12.5735, 12.7858, 13.455, 13.2626, 13.4745, 13.5728, 13.4283, 13.0325, 13.0296, 13.2516, 13.3017, 12.8148, 12.6139, 12.1552, 12.2463, 11.9198, 11.4407, 10.7991, 10.5606, 10.3384, 11.2508, 10.7367, 11.162, 10.7219, 10.6095], "kpis": {"initial": 20.0, "final": 17.22, "total_return_pct": -13.88, "max_drawdown_pct": 13.88, "dq_pct": 30.0, "sharpe_like": -0.137, "trades": 58, "buyhold_pct": -46.95}, "positions": {}, "cash": 17.22, "blocked": 0, "block_reasons": {}, "fills": [{"kind": "fill", "token": "COMP", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK579c0b767ab1fa54", "reason": "per-position stop (-0.056)", "ts": "2026-06-19T00:38:14.714894+00:00"}, {"kind": "fill", "token": "ATOM", "action": "buy", "size_usd": 1.08, "tx_hash": "0xMOCK95f6415374bd8111", "reason": "approved size=$1.08 (budget_mult=0.20, dd=0.120)", "ts": "2026-06-19T00:38:14.717483+00:00"}, {"kind": "fill", "token": "PENDLE", "action": "buy", "size_usd": 1.01, "tx_hash": "0xMOCK5702e1165f176da0", "reason": "approved size=$1.01 (budget_mult=0.20, dd=0.120)", "ts": "2026-06-19T00:38:14.719113+00:00"}, {"kind": "fill", "token": "ATOM", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCKdc5c2ba85ce8fdcf", "reason": "per-position stop (-0.101)", "ts": "2026-06-19T00:38:14.721648+00:00"}, {"kind": "fill", "token": "ATOM", "action": "buy", "size_usd": 0.71, "tx_hash": "0xMOCKf31457eee719d049", "reason": "approved size=$0.71 (budget_mult=0.14, dd=0.129)", "ts": "2026-06-19T00:38:14.724402+00:00"}, {"kind": "fill", "token": "PENDLE", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK1bd1e468768bdd09", "reason": "per-position stop (-0.045)", "ts": "2026-06-19T00:38:14.726982+00:00"}, {"kind": "fill", "token": "ATOM", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCKef298dc435adf85a", "reason": "per-position stop (-0.111)", "ts": "2026-06-19T00:38:14.730575+00:00"}, {"kind": "fill", "token": "RAY", "action": "close", "size_usd": 0.0, "tx_hash": "0xMOCK5442149c2b0c1137", "reason": "close_allowed", "ts": "2026-06-19T00:38:14.733309+00:00"}]};
-const $=id=>document.getElementById(id);
-const pct=v=>(v>=0?'+':'')+v.toFixed(2)+'%';
-const cls=v=>v>=0?'pos':'neg';
+const D={"address": "0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19", "agent_id": "138200", "registered": true, "live": false, "portfolio": {"total_usd": 35.32, "holdings": [{"sym": "USDT", "amount": 21.18, "usd": 21.16}, {"sym": "BNB", "amount": 0.02438, "usd": 14.16}]}, "track": {"return_pct": -13.88, "buyhold_pct": -46.95, "maxdd_pct": 13.88, "dq_pct": 30.0, "trades": 58, "tokens": 40}, "chart": {"dates": ["2025-10-08", "2025-10-11", "2025-10-14", "2025-10-17", "2025-10-20", "2025-10-23", "2025-10-26", "2025-10-29", "2025-11-01", "2025-11-04", "2025-11-07", "2025-11-10", "2025-11-13", "2025-11-16", "2025-11-19", "2025-11-22", "2025-11-25", "2025-11-28", "2025-12-01", "2025-12-04", "2025-12-07", "2025-12-10", "2025-12-13", "2025-12-16", "2025-12-19", "2025-12-22", "2025-12-25", "2025-12-28", "2025-12-31", "2026-01-03", "2026-01-06", "2026-01-09", "2026-01-12", "2026-01-15", "2026-01-18", "2026-01-21", "2026-01-24", "2026-01-27", "2026-01-30", "2026-02-02", "2026-02-05", "2026-02-08", "2026-02-11", "2026-02-14", "2026-02-17", "2026-02-20", "2026-02-23", "2026-02-26", "2026-03-01", "2026-03-04", "2026-03-07", "2026-03-10", "2026-03-13", "2026-03-16", "2026-03-19", "2026-03-22", "2026-03-25", "2026-03-28", "2026-03-31", "2026-04-03", "2026-04-06", "2026-04-09", "2026-04-12", "2026-04-15", "2026-04-18", "2026-04-21", "2026-04-24", "2026-04-27", "2026-04-30", "2026-05-03", "2026-05-06", "2026-05-09", "2026-05-12", "2026-05-15", "2026-05-18", "2026-05-21", "2026-05-24", "2026-05-27", "2026-05-30", "2026-06-02", "2026-06-05", "2026-06-08", "2026-06-11", "2026-06-14", "2026-06-17", "2026-06-18", "2026-06-19"], "equity": [19.9859, 18.9868, 19.0658, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9617, 18.9518, 19.0942, 18.618, 18.2973, 18.3844, 18.2541, 17.9356, 17.599, 17.7925, 17.5936, 17.4215, 17.3577, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249, 17.2249], "benchmark": [20.0, 17.7565, 19.4717, 19.219, 19.9815, 18.9073, 18.9547, 18.6445, 18.9225, 17.9139, 18.4324, 17.8596, 17.3746, 16.8301, 16.2314, 15.9443, 15.221, 14.752, 14.2448, 13.7658, 13.4676, 13.5611, 13.2124, 13.0153, 13.1706, 13.037, 12.7732, 13.0797, 12.4933, 13.0851, 13.3574, 13.1374, 13.0311, 13.4884, 13.5259, 13.5081, 13.6964, 13.6327, 13.322, 13.1532, 12.352, 12.249, 12.4144, 12.5524, 11.8997, 11.63, 11.6093, 11.5582, 11.6041, 11.7313, 11.8302, 11.944, 11.858, 12.1866, 12.271, 12.151, 12.2198, 12.3187, 12.5178, 12.5101, 12.2717, 12.3394, 12.5735, 12.7858, 13.455, 13.2626, 13.4745, 13.5728, 13.4283, 13.0325, 13.0296, 13.2516, 13.3017, 12.8148, 12.6139, 12.1552, 12.2463, 11.9198, 11.4407, 10.7991, 10.5606, 10.3384, 11.2508, 10.7367, 11.162, 10.7219, 10.6095], "label": "Strategy backtest (1y, real prices)"}, "risk": {"kill": 15.0, "stop": 4.0, "policy": "rotation"}, "blocked": 19};
+const $=i=>document.getElementById(i);
+$('mode').textContent=D.live?'LIVE':'ARMED · DRY-RUN';
+$('chips').innerHTML=[`<span class="chip">🟢 registered</span>`,
+  `<span class="chip"><b>${D.track.tokens}</b> tokens</span>`,
+  `<span class="chip">CMC Agent Hub</span>`,`<span class="chip">TWAK · BSC</span>`].join('');
 
-// badges
-$('badges').innerHTML=[`<span class="badge on">● ${D.policy} strategy</span>`,
-  `<span class="badge">${D.tokens.length} eligible tokens</span>`,
-  `<span class="badge">CMC Agent Hub</span>`,`<span class="badge">TWAK · BSC</span>`].join('');
+// hero portfolio (animated count-up)
+const pv=D.portfolio.total_usd;
+if(pv!=null){let s=0,t=performance.now();
+ (function anim(n){let p=Math.min((n-t)/700,1);$('pv').textContent='$'+(pv*p).toFixed(2);if(p<1)requestAnimationFrame(anim);})(t);}
+else $('pv').textContent='—';
+$('pvsub').textContent=D.portfolio.holdings.length?'across '+D.portfolio.holdings.length+' assets':'fund wallet to begin';
+$('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="h-row"><span class="s">${h.sym}</span>
+ <span class="a">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
-// KPIs
-const k=D.kpis, hasBench=(k.buyhold_pct!==null && k.buyhold_pct!==undefined);
-const edge=hasBench?(k.total_return_pct-k.buyhold_pct):0;
-$('kpis').innerHTML=[
- ['Total return',pct(k.total_return_pct),cls(k.total_return_pct),'backtest, '+D.period],
- hasBench?['vs. buy &amp; hold','+'+edge.toFixed(1)+' pts','pos','market did '+pct(k.buyhold_pct)]
-          :['status','● LIVE','pos','trading on BSC'],
- ['Max drawdown',k.max_drawdown_pct.toFixed(2)+'%','pos','DQ line '+k.dq_pct+'% — safe'],
- ['Sharpe-like',k.sharpe_like.toFixed(2),k.sharpe_like>=0?'pos':'neg','per-bar'],
- ['Trades',String(k.trades),'',D.blocked+' blocked by rules'],
- ['Final equity','$'+k.final.toFixed(0),cls(k.total_return_pct),'from $'+k.initial.toFixed(0)],
-].map(([l,v,c,s])=>`<div class="card"><div class="lab">${l}</div>
- <div class="val ${c}">${v}</div><div class="sub">${s}</div></div>`).join('');
-// make the edge card the hero
-$('kpis').children[1].querySelector('.val').classList.add('hero-num');
+// track record
+const t=D.track,edge=(t.return_pct-t.buyhold_pct);
+$('trk').textContent='1y backtest';
+$('ret').textContent=(t.return_pct>=0?'+':'')+t.return_pct+'%';
+$('ret').className='v '+(t.return_pct>=0?'pos':'neg');
+$('vsmkt').innerHTML=`vs market <b style="color:#ff6b78">${t.buyhold_pct}%</b> · <span style="color:#2fd27e">+${edge.toFixed(0)} pts edge</span>`;
+$('dd').textContent=t.maxdd_pct+'%';
+$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';
 
-// chart
-function chart(){
- const W=660,H=240,pad=28,N=D.equity.length;
- const all=D.equity.concat(D.benchmark);let mn=Math.min(...all),mx=Math.max(...all);
- const pd=(mx-mn)*0.08||1;mn-=pd;mx+=pd;
- const X=i=>pad+i*(W-2*pad)/(N-1), Y=v=>H-pad-(v-mn)/(mx-mn)*(H-2*pad);
- const path=s=>s.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
- const area=path(D.equity)+` L${X(N-1)} ${H-pad} L${X(0)} ${H-pad} Z`;
- let grid='';for(let g=0;g<=3;g++){const yy=pad+g*(H-2*pad)/3;
-  grid+=`<line x1="${pad}" y1="${yy}" x2="${W-pad}" y2="${yy}" stroke="var(--line)" stroke-width="1"/>`;}
- $('chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%">
+// risk
+$('pol').textContent=D.risk.policy;$('stop').textContent=D.risk.stop+'%';
+$('kill').textContent=D.risk.kill+'%';$('blk').textContent=D.blocked;
+$('aid').textContent='#'+D.agent_id;$('addr').textContent=D.address.slice(0,6)+'…'+D.address.slice(-4);
+
+// chart (animated line draw)
+(function(){const c=D.chart,W=620,H=230,p=24,N=c.equity.length;if(N<2){return;}
+ const all=c.equity.concat(c.benchmark&&c.benchmark.length?c.benchmark:[]);
+ let mn=Math.min(...all),mx=Math.max(...all);const pd=(mx-mn)*.1||1;mn-=pd;mx+=pd;
+ const X=i=>p+i*(W-2*p)/(N-1),Y=v=>H-p-(v-mn)/(mx-mn)*(H-2*p);
+ const pa=s=>s.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+' '+Y(v).toFixed(1)).join(' ');
+ const bench=c.benchmark&&c.benchmark.length?`<path d="${pa(c.benchmark)}" fill="none" stroke="#ff6b78" stroke-width="2" stroke-dasharray="5 5" opacity=".7"/>`:'';
+ $('chartlab').textContent=c.label;$('chartmeta').textContent=N+' pts';
+ $('chart').innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="margin-top:8px">
   <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-   <stop offset="0" stop-color="var(--grn)" stop-opacity=".28"/>
-   <stop offset="1" stop-color="var(--grn)" stop-opacity="0"/></linearGradient></defs>
-  ${grid}
-  <path d="${area}" fill="url(#g)"/>
-  ${D.benchmark&&D.benchmark.length?`<path d="${path(D.benchmark)}" fill="none" stroke="var(--red)" stroke-width="2" stroke-dasharray="5 4" opacity=".85"/>`:''}
-  <path d="${path(D.equity)}" fill="none" stroke="var(--grn)" stroke-width="2.5"/>
-  <text x="${pad}" y="${H-6}" fill="var(--mut)" font-size="11">${D.dates[0]||''}</text>
-  <text x="${W-pad}" y="${H-6}" fill="var(--mut)" font-size="11" text-anchor="end">${D.dates[D.dates.length-1]||''}</text>
-  <text x="${W-pad}" y="${pad-8}" fill="var(--mut)" font-size="11" text-anchor="end">$${mx.toFixed(0)}</text>
- </svg>`;
- $('chartmeta').textContent=N+' bars';
-}
-chart();
-
-// risk gauge
-const head=Math.max(0,k.dq_pct-k.max_drawdown_pct);
-$('ddbar').style.width=Math.min(100,k.max_drawdown_pct/k.dq_pct*100).toFixed(1)+'%';
-$('ddtxt').innerHTML=`Used <b style="color:var(--txt)">${k.max_drawdown_pct.toFixed(2)}%</b> of the ${k.dq_pct}% DQ budget · ${head.toFixed(1)}% headroom`;
-const br=Object.entries(D.block_reasons||{}).map(([r,n])=>`<div class="row"><span class="t">${r}</span><span class="tag">${n}</span></div>`).join('');
-$('rules').innerHTML=`<div class="row"><span class="t">Min trades / week</span><span>${k.trades} / 7</span></div>
- <div class="row"><span class="t">Trades blocked (rule adherence)</span><span>${D.blocked}</span></div>${br}`;
-
-// fills
-$('fills').innerHTML=(D.fills.length?D.fills:[]).map(f=>`<div class="row">
-  <span><b>${(f.action||'').toUpperCase()}</b> ${f.token}</span>
-  <span class="t">${(f.reason||'').slice(0,42)}</span></div>`).join('')||'<div class="t" style="color:var(--mut);font-size:13px">Capital preserved in cash — disciplined inactivity in risk-off.</div>';
-
-// holdings
-const pos=Object.entries(D.positions||{});
-$('holdings').innerHTML=`<div class="row"><span>USDT (cash)</span><span class="pos">$${D.cash.toFixed(2)}</span></div>`+
- (pos.length?pos.map(([t,q])=>`<div class="row"><span>${t}</span><span>${q}</span></div>`).join('')
-  :'<div class="t" style="color:var(--mut);font-size:13px;margin-top:8px">Fully in cash — risk-off regime.</div>');
-
-$('ts').textContent='Generated '+D.generated+' · '+D.universe+' universe';
+   <stop offset="0" stop-color="#2fd27e" stop-opacity=".3"/><stop offset="1" stop-color="#2fd27e" stop-opacity="0"/></linearGradient></defs>
+  <path d="${pa(c.equity)} L${X(N-1)} ${H-p} L${X(0)} ${H-p} Z" fill="url(#g)"/>
+  ${bench}
+  <path d="${pa(c.equity)}" fill="none" stroke="#2fd27e" stroke-width="2.5" stroke-linejoin="round"
+    pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.4s ease forwards"/>
+  <style>@keyframes draw{to{stroke-dashoffset:0}}</style>
+  <text x="${p}" y="${H-5}" fill="#6b779c" font-size="10">${c.dates[0]||''}</text>
+  <text x="${W-p}" y="${H-5}" fill="#6b779c" font-size="10" text-anchor="end">${c.dates[c.dates.length-1]||''}</text></svg>`;
+})();
 </script></body></html>
