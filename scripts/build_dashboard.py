@@ -113,8 +113,9 @@ def _market(cfg):
         any_d = next(iter(snap.values()))
         ranked = sorted(sigs.values(), key=lambda s: s.score, reverse=True)
         tc = cfg["twak"]["token_contracts"]
-        top = [{"sym": s.token, "score": round(s.score, 3), "logo": _logo(s.token, tc.get(s.token))}
-               for s in ranked[:8]]
+        top = [{"sym": s.token, "score": round(s.score, 3), "logo": _logo(s.token, tc.get(s.token)),
+                "price": float(snap.get(s.token, {}).get("price", 0))}
+               for s in ranked[:12]]
         bullish = sum(1 for s in sigs.values() if s.score > 0)
         tradeable = set(cfg["twak"]["token_contracts"])
         prices = {t: float(d.get("price", 0)) for t, d in snap.items()
@@ -320,18 +321,21 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .regime{font-size:11.5px;font-weight:700;padding:5px 13px;border-radius:999px}
 .fgblock{margin-bottom:18px;max-width:540px}
 .fgbar{height:6px;border-radius:999px;background:linear-gradient(90deg,#fb7185,#fbbf63,#34d399);position:relative;margin-top:10px}
-.fgbar i{position:absolute;top:-4px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #070b14;transform:translateX(-50%);box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.fgbar i{position:absolute;top:-4px;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #070b14;transform:translateX(-50%);box-shadow:0 2px 6px rgba(0,0,0,.5);animation:fgpulse 2s ease-in-out infinite}
+@keyframes fgpulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.22),0 2px 6px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 6px rgba(255,255,255,0),0 2px 6px rgba(0,0,0,.5)}}
 .mstats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:22px}
 @media(max-width:620px){.mstats{grid-template-columns:1fr}}
 .cell{background:var(--cell);border:1px solid var(--bd);border-radius:12px;padding:13px 15px}
 .mkv{font-size:18px;font-weight:700;margin-top:6px}
 .leadgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px 32px}
 @media(max-width:620px){.leadgrid{grid-template-columns:1fr}}
-.lr{display:flex;align-items:center;gap:9px;padding:6px 0}
-.lr .rk{font-size:10px;color:var(--mut2);width:13px}.lr .tk{font-weight:600;width:56px;font-size:12px}
-.lr .bar{flex:1;height:5px;background:rgba(255,255,255,.05);border-radius:999px;position:relative}
-.lr .bar b{position:absolute;top:0;height:100%;border-radius:999px}
-.lr .sc{width:46px;text-align:right;font-size:11px;color:var(--mut)}
+.lr{display:flex;align-items:center;gap:8px;padding:7px 0}
+.lr .rk{font-size:10px;color:var(--mut2);width:13px}
+.lr .tk{font-weight:600;width:50px;font-size:12px}
+.lr .px{flex:1;text-align:right;font-size:11px;color:var(--mut2);font-variant-numeric:tabular-nums}
+.lr .pulse{width:7px;height:7px;border-radius:50%;flex:none;animation:dotpulse 1.8s ease-in-out infinite}
+.lr .sc{width:46px;text-align:right;font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+@keyframes dotpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.78)}}
 .ico{width:21px;height:21px;border-radius:50%;background:#141a27;object-fit:cover;vertical-align:middle;border:1px solid var(--bd)}
 .ico.sm{width:17px;height:17px}
 .ico.lt{display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:8px;letter-spacing:-.3px;color:#aeb8d8;background:#1b2334}
@@ -465,7 +469,6 @@ const mk=D.market;
 if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
  const fl=mk.fg<25?'Extreme fear':mk.fg<45?'Fear':mk.fg<55?'Neutral':mk.fg<75?'Greed':'Extreme greed';
  $('market').innerHTML=`
-  <div class="mtop"><span class="regime" style="color:${col};background:${bg}">${nm}</span></div>
   <div class="fgblock"><div class="lab">Fear &amp; Greed — <b style="color:${col}">${mk.fg} · ${fl}</b></div>
     <div class="fgbar"><i style="left:${mk.fg}%"></i></div></div>
   <div class="mstats">
@@ -473,11 +476,13 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
     <div class="cell"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
     <div class="cell"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
   </div>`;
- $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const w=Math.min(50,Math.abs(l.score)*50),p=l.score>=0;
+ $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const p=l.score>=0,c=p?'var(--g)':'var(--r)';
+   const px=l.price>=1?('$'+l.price.toFixed(2)):('$'+(+l.price||0).toPrecision(2));
    return `<div class="lr"><span class="rk">${i+1}</span>
    <img class="ico sm" src="${l.logo}" onerror="fbk(this,'${l.sym}')"/><span class="tk">${l.sym}</span>
-   <span class="bar"><b style="${p?'left:50%':'right:50%'};width:${w}%;background:${p?'var(--g)':'var(--r)'}"></b></span>
-   <span class="sc num">${l.score>=0?'+':''}${l.score.toFixed(2)}</span></div>`;}).join('');
+   <span class="px">${px}</span>
+   <span class="pulse" style="background:${c};box-shadow:0 0 6px ${c}"></span>
+   <span class="sc" style="color:${c}">${p?'+':''}${l.score.toFixed(2)}</span></div>`;}).join('');
 }else $('mcard').style.display='none';
 
 // recent activity / decision log
@@ -531,7 +536,7 @@ const fmt=s=>{if(!s)return'';const d=s.split('-');return MON[(+d[1]||1)-1]+' '+(
   <text x="${W-R+8}" y="${(y+3).toFixed(1)}" fill="var(--mut2)" font-size="10">$${v.toFixed(ydec)}</text>`;}
  const base=Y(c.equity[0]);
  $('clab').textContent=c.label;$('cmeta').textContent=N+' points';
- $('lg').innerHTML=`<span><i style="background:${col}"></i>Bot</span>`+(hasB?`<span><i style="background:var(--r)"></i>Market (buy&amp;hold)</span>`:'')+`<span><i style="background:var(--mut2)"></i>start</span>`;
+ $('lg').innerHTML=`<span><i style="background:${col}"></i>Agent</span>`+(hasB?`<span><i style="background:var(--r)"></i>Market (buy&amp;hold)</span>`:'')+`<span><i style="background:var(--mut2)"></i>start</span>`;
  $('cw').insertAdjacentHTML('afterbegin',`<svg id="svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
   <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".26"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient>
   <filter id="gl"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
