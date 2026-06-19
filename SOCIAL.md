@@ -1,7 +1,9 @@
 # CMC Special Prize: #CMCAgentHub tweet ($2K, 10 winners)
 
 Judged on **Creativity, Engagement, Usefulness**. Must: hashtag `#CMCAgentHub`,
-tag `@CoinMarketCap`, mention the Hackathon, and be in BNB Hack.
+mention the Hackathon, and be in BNB Hack. **Tag all 3 sponsor accounts** —
+`@coinmarketcap` · `@bnbchain` · `@trustwallet` — an organizer confirmed they
+monitor every tweet and repost the best ones.
 
 **Format: a thread** (threads beat single tweets on engagement and let us show
 more). Tweet 1 carries all the required tags. Attach the dashboard image to T1 and
@@ -16,7 +18,7 @@ the demo video to T2.
 > We got tired of it. So we built CTA, an AI agent that trades for you and
 > actually knows when to get out.
 >
-> It runs on @CoinMarketCap #CMCAgentHub signals. Built for the BNB Hack. 🧵👇
+> It runs on @coinmarketcap #CMCAgentHub signals, trades via @trustwallet, on @bnbchain. Built for the BNB Hack. 🧵👇
 >
 > [attach: dashboard screenshot]
 
@@ -25,7 +27,7 @@ the demo video to T2.
 > Here's what nobody admits. Most trading bots print in a bull run, then blow up
 > the second the market turns.
 >
-> We ran CTA through a real crash. The market fell 47%. CTA was down 14% and never
+> We ran CTA through a real crash. The market fell 47%. CTA was down ~12% and never
 > came close to getting liquidated.
 >
 > Surviving the dip is the whole game. 👇
@@ -46,9 +48,9 @@ the demo video to T2.
 ## Tweet 4 (sponsors + close)
 
 > One agent. Three pieces:
-> 🔹 @CoinMarketCap Agent Hub for the signals
-> 🔹 Trust Wallet Agent Kit for real on-chain trades
-> 🔹 BNB ERC-8004 for its on-chain identity
+> 🔹 @coinmarketcap Agent Hub for the signals
+> 🔹 @trustwallet Agent Kit for real on-chain trades
+> 🔹 @bnbchain ERC-8004 for its on-chain identity
 >
 > Open source. Logs every move. Runs 24/7.
 >
@@ -58,7 +60,7 @@ the demo video to T2.
 
 ## Required checklist (verify before posting T1)
 - [ ] `#CMCAgentHub`
-- [ ] tag `@CoinMarketCap`
+- [ ] tag all 3: `@coinmarketcap` `@bnbchain` `@trustwallet`
 - [ ] mentions the Hackathon (BNB Hack)
 - [ ] keep Twitter DMs OPEN (CMC contacts winners via DM)
 - [ ] DM the tweet to CMC on Telegram too (per rules)
