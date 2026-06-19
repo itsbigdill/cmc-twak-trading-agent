@@ -190,6 +190,7 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 .mkt{display:flex;align-items:center;gap:34px;flex-wrap:wrap}
 .mkt .it{display:flex;flex-direction:column;gap:5px}
 .mkt .fg{flex:1;min-width:230px}
+.mkt .cell{background:var(--cell);border:1px solid var(--bd);border-radius:13px;padding:11px 16px}
 .mkv{font-size:19px;font-weight:700}
 .prow{display:flex;align-items:flex-end;gap:34px;flex-wrap:wrap;margin-top:8px}
 .holds{display:flex;gap:10px;flex-wrap:wrap;flex:1;justify-content:flex-end}
@@ -206,9 +207,10 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 .lab{font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;color:var(--mut);font-weight:600}
 .head{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}
 .title{font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
-.logo{width:36px;height:36px;border-radius:10px;vertical-align:middle}
-.nm{display:flex;flex-direction:column;line-height:1.15}
-.nm small{font-weight:500;color:var(--mut);font-size:11px}
+.logo{width:46px;height:46px;border-radius:12px;vertical-align:middle;background:rgba(255,255,255,.04);border:1px solid var(--bd)}
+.nm{display:flex;flex-direction:column;line-height:1.1}
+.nm b{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.nm small{font-weight:500;color:var(--mut);font-size:11px;letter-spacing:.3px}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--g);
  background:rgba(47,210,126,.1);border:1px solid rgba(47,210,126,.28);padding:5px 11px;border-radius:999px}
 .badge i{width:7px;height:7px;border-radius:50%;background:var(--g);animation:pulse 2s infinite}
@@ -216,6 +218,19 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 .chips{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
 .chip{font-size:11px;font-weight:550;color:var(--mut);background:var(--cell);border:1px solid var(--bd);padding:5px 10px;border-radius:999px}
 .chip b{color:var(--tx)}.beat{font-size:11px;color:var(--mut2)}
+.chip.on{color:var(--g);border-color:rgba(47,210,126,.3)}
+.trgrid{display:grid;grid-template-columns:1.3fr 1fr;gap:28px;align-items:center;margin-top:8px}
+@media(max-width:720px){.trgrid{grid-template-columns:1fr;gap:18px}}
+.cmp{margin-top:16px;display:flex;flex-direction:column;gap:9px}
+.cmprow{display:flex;align-items:center;gap:12px;font-size:12.5px}
+.cmprow .cl{width:52px;color:var(--mut)}
+.cmprow .cbar{flex:1;height:9px;background:rgba(255,255,255,.05);border-radius:999px;overflow:hidden}
+.cmprow .cbar b{display:block;height:100%;border-radius:999px}
+.cmprow .cv{width:60px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.trstats{display:flex;flex-direction:column;gap:10px}
+.trstats .m{background:var(--cell);border:1px solid var(--bd);border-radius:13px;padding:11px 15px;display:flex;justify-content:space-between;align-items:center}
+.trstats .m .k{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px}
+.trstats .m .x{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
 .big{font-size:46px;font-weight:800;letter-spacing:-1.4px;line-height:1;margin:8px 0 3px;
  background:linear-gradient(92deg,#fff,#b9ccff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .sub{color:var(--mut);font-size:12.5px}
@@ -259,7 +274,7 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 <div class="head">
   <div class="title">
     <img class="logo" src="logo.png" alt="CTA" onerror="this.outerHTML='🤖'"/>
-    <span class="nm">CTA<small>CMC · TWAK · Agent</small></span>
+    <span class="nm"><b>CTA</b><small>CMC · TWAK · Agent</small></span>
     <span class="badge"><i></i><span id="mode"></span></span>
     <span class="beat" id="beat"></span></div>
   <div class="chips" id="chips"></div>
@@ -274,12 +289,18 @@ background-attachment:fixed;padding:28px 20px;-webkit-font-smoothing:antialiased
 </div>
 
 <div class="card">
-  <div class="lab">Strategy track record · <span id="trk"></span></div>
-  <div class="mkt" style="margin-top:10px">
-    <div class="it"><div class="ret num" id="ret"></div><div class="sub" id="vsmkt"></div></div>
-    <div class="it"><div class="lab">Max drawdown</div><div class="mkv pos num" id="dd"></div></div>
-    <div class="it"><div class="lab">DQ headroom</div><div class="mkv acc num" id="hr"></div></div>
-    <div class="it"><div class="lab">Backtest trades</div><div class="mkv num" id="tr"></div></div>
+  <div class="ph">Strategy track record <span id="trk">1y backtest · real prices</span></div>
+  <div class="trgrid">
+    <div>
+      <div class="ret num" id="ret"></div>
+      <div class="sub" id="vsmkt"></div>
+      <div class="cmp" id="cmp"></div>
+    </div>
+    <div class="trstats">
+      <div class="m"><span class="k">Max drawdown</span><span class="x pos num" id="dd"></span></div>
+      <div class="m"><span class="k">DQ headroom</span><span class="x acc num" id="hr"></span></div>
+      <div class="m"><span class="k">Backtest trades</span><span class="x num" id="tr"></span></div>
+    </div>
   </div>
 </div>
 
@@ -321,8 +342,9 @@ const REG={trend_up:['#2fd27e','rgba(47,210,126,.14)','uptrend'],trend_down:['#f
 $('mode').textContent={live:'LIVE',paper:'PAPER · real signals',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
 $('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago';
-$('chips').innerHTML=[`<span class="chip">🟢 registered</span>`,`<span class="chip"><b>${D.track.tokens}</b> tokens</span>`,
- `<span class="chip">CMC Agent Hub</span>`,`<span class="chip">TWAK · BSC</span>`].join('');
+$('chips').innerHTML=[`<span class="chip on">🟢 registered on-chain</span>`,
+ `<span class="chip">ERC-8004 <b>#${D.agent_id}</b></span>`,
+ `<span class="chip"><b>${D.track.tokens}</b> eligible tokens</span>`].join('');
 
 const pv=D.portfolio.total_usd;
 if(pv!=null){const t0=performance.now();(function a(n){let p=Math.min((n-t0)/750,1);p=1-Math.pow(1-p,3);
@@ -333,10 +355,14 @@ $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
 const t=D.track,edge=(t.return_pct-t.buyhold_pct);
-$('trk').textContent='1y backtest';
 $('ret').textContent=(t.return_pct>=0?'+':'')+t.return_pct+'%';$('ret').className='ret num '+(t.return_pct>=0?'pos':'neg');
-$('vsmkt').innerHTML=`vs market <b class="neg">${t.buyhold_pct}%</b> · <b class="pos">+${edge.toFixed(0)} pts edge</b>`;
+$('vsmkt').innerHTML=`<b class="pos">+${edge.toFixed(0)} pts</b> better than holding the same tokens`;
 $('dd').textContent=t.maxdd_pct+'%';$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';$('tr').textContent=t.trades;
+(function(){const ar=Math.abs(t.return_pct),mr=Math.abs(t.buyhold_pct),mx=Math.max(ar,mr,1);
+ $('cmp').innerHTML=`
+  <div class="cmprow"><span class="cl">Agent</span><span class="cbar"><b style="width:${(ar/mx*100).toFixed(0)}%;background:${t.return_pct>=0?'var(--g)':'var(--r)'}"></b></span><span class="cv ${t.return_pct>=0?'pos':'neg'}">${(t.return_pct>=0?'+':'')+t.return_pct}%</span></div>
+  <div class="cmprow"><span class="cl">Market</span><span class="cbar"><b style="width:${(mr/mx*100).toFixed(0)}%;background:var(--r);opacity:.55"></b></span><span class="cv neg">${t.buyhold_pct}%</span></div>`;
+})();
 $('pol').textContent=D.risk.policy;$('stop').textContent=D.risk.stop+'%';$('kill').textContent=D.risk.kill+'%';
 $('toks').textContent=D.track.tokens;$('blk').textContent=D.blocked;
 $('aid').textContent='#'+D.agent_id;$('addr').textContent=D.address.slice(0,6)+'…'+D.address.slice(-4);
@@ -348,9 +374,9 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
    <span class="regime" style="color:${col};background:${bg}">${nm}</span>
    <div class="it fg"><div class="lab">Fear &amp; Greed — <b style="color:${col}">${mk.fg} · ${fl}</b></div>
      <div class="fgbar"><i style="left:${mk.fg}%"></i></div></div>
-   <div class="it"><div class="lab">BTC dominance</div><div class="mkv num">${mk.dom}%</div></div>
-   <div class="it"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
-   <div class="it"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
+   <div class="it cell"><div class="lab">BTC dominance</div><div class="mkv num">${mk.dom}%</div></div>
+   <div class="it cell"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
+   <div class="it cell"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
   </div>`;
  $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const w=Math.min(50,Math.abs(l.score)*50),p=l.score>=0;
    return `<div class="lr"><span class="rk">${i+1}</span>
