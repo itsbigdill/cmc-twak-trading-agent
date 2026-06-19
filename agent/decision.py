@@ -117,7 +117,8 @@ class RotationDecider:
     (cash in downturns + the same stops/sizing downstream).
 
       TREND_UP   -> hold top-K tokens with positive momentum
-      TREND_DOWN -> risk-off: rotate fully to cash (USDT)
+      TREND_DOWN -> defensive: hold only the few STRONGEST relative-strength names
+                    (high momentum bucking the market), else cash
       CHOP       -> hold current positions (no churn, no forced cash)
     """
 
@@ -126,6 +127,11 @@ class RotationDecider:
         d = cfg.get("decision", {})
         self.k = d.get("rotation_top_k", 3)
         self.min_mom = d.get("rotation_min_momentum", 0.05)
+        # Counter-trend: in a downtrend, still ride the strongest relative-strength
+        # names (a pure-cash agent scores ~0% in a rank-by-return contest), but
+        # fewer of them and only if momentum is strong.
+        self.down_k = d.get("rotation_downtrend_topk", 2)
+        self.down_min_mom = d.get("rotation_downtrend_min_momentum", 0.2)
         self.tradeable = set(cfg["twak"]["token_contracts"])
 
     def decide(self, snapshot, signals: dict[str, TokenSignal], portfolio, risk_limits):
@@ -139,8 +145,8 @@ class RotationDecider:
             return []                          # hold current; stops still run upstream
 
         ranked = sorted(cand, key=lambda s: s.score, reverse=True)
-        if regime is Regime.TREND_DOWN:
-            targets = []                       # risk-off -> all cash
+        if regime is Regime.TREND_DOWN:         # only the strongest counter-trend names
+            targets = [s.token for s in ranked if s.score > self.down_min_mom][: self.down_k]
         else:
             targets = [s.token for s in ranked if s.score > self.min_mom][: self.k]
 

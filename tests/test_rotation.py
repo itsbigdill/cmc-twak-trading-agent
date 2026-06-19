@@ -25,11 +25,22 @@ def test_rotation_picks_top_k_in_uptrend(cfg):
     assert {b["token"] for b in buys} == {"ETH", "CAKE"}   # top 2 by momentum
 
 
-def test_rotation_goes_to_cash_in_downtrend(cfg):
+def test_rotation_downtrend_holds_strong_exits_weak(cfg):
     d = RotationDecider(cfg)
-    signals = {"ETH": _sig("ETH", 0.8, Regime.TREND_DOWN)}
+    # downtrend: a strongly-positive name is ridden (counter-trend), a weak one cut
+    signals = {"ETH": _sig("ETH", 0.8, Regime.TREND_DOWN),   # strong -> keep
+               "CAKE": _sig("CAKE", 0.05, Regime.TREND_DOWN)}  # weak -> exit
+    out = d.decide({}, signals, _portfolio({"CAKE": 5.0}), {})
+    actions = {(x["token"], x["action"]) for x in out}
+    assert ("CAKE", "close") in actions                     # weak name exited
+    assert ("ETH", "buy") in actions                        # strongest name entered
+
+
+def test_rotation_downtrend_all_weak_goes_cash(cfg):
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.05, Regime.TREND_DOWN)}  # below downtrend threshold
     out = d.decide({}, signals, _portfolio({"ETH": 5.0}), {})
-    assert all(x["action"] == "close" for x in out)        # risk-off: exit everything
+    assert all(x["action"] == "close" for x in out)         # nothing strong -> cash
 
 
 def test_rotation_holds_in_chop(cfg):
