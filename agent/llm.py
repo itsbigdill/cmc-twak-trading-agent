@@ -6,7 +6,7 @@ provider-neutral: it uses whichever key is present, preferring Gemini (generous
 free tier) over Anthropic. With no key it returns None and callers fall back to
 the deterministic path — so the agent always runs.
 
-    GEMINI_API_KEY  (or GOOGLE_API_KEY) -> Gemini   [default model gemini-2.0-flash]
+    GEMINI_API_KEY  (or GOOGLE_API_KEY) -> Gemini   [default model gemini-3.5-flash]
     ANTHROPIC_API_KEY                    -> Claude   [default model claude-haiku-4-5]
     (neither)                            -> None
 
@@ -37,7 +37,7 @@ def complete(user: str, *, system: str = "", max_tokens: int = 512,
     try:
         if p == "gemini":
             return _gemini(user, system, max_tokens,
-                           model or os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+                           model or os.environ.get("GEMINI_MODEL", "gemini-3.5-flash"),
                            timeout)
         if p == "anthropic":
             return _anthropic(user, system, max_tokens,

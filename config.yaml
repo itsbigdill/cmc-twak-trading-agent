@@ -105,7 +105,7 @@ decision:
 
 llm:
   # Provider-agnostic (agent/llm.py): auto-picks by key — GEMINI_API_KEY -> Gemini
-  # (free tier, default gemini-2.5-flash), else ANTHROPIC_API_KEY -> Claude, else
+  # (free tier, default gemini-3.5-flash), else ANTHROPIC_API_KEY -> Claude, else
   # the deterministic RotationDecider runs alone. Override model via GEMINI_MODEL /
   # ANTHROPIC_MODEL env. No LLM requirement from the hackathon — this is optional polish.
   max_tokens: 1500
