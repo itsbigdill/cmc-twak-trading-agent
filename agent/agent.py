@@ -220,6 +220,9 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     for d in decisions:
         token = d["token"]
         log.event("decision", **d)
+        # A hold is a deliberate no-op, NOT a blocked trade — don't log it as one.
+        if d["action"] == "hold":
+            continue
         # Off-universe guard: only opening trades in tradeable tokens count.
         # (BTC/BNB are signal-only; their "buy" decisions are ignored here.)
         if d["action"] == "buy" and token not in tradeable:
@@ -233,8 +236,6 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         )
         if not verdict.approved:
             log.event("blocked", token=token, action=d["action"], reason=verdict.reason)
-            continue
-        if d["action"] in ("hold",):
             continue
 
         _exec_and_log(executor, state, cfg, tick_id, token, d["action"],

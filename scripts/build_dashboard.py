@@ -169,6 +169,8 @@ def build_data(with_wallet=True, with_market=True):
              "logo": _logo(r.get("token", ""), cfg["twak"]["token_contracts"].get(r.get("token", ""))),
              "ts": (r.get("ts") or "")[11:16]}
             for r in rows if r.get("kind") in ("fill", "blocked", "x402", "position_stop", "kill_switch")
+            # a hold/close "*_allowed" is a no-op verdict, not a real block -> hide it
+            and not (r.get("kind") == "blocked" and str(r.get("reason", "")).endswith("_allowed"))
         ][-10:][::-1],
     }
 
