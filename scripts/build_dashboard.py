@@ -204,6 +204,10 @@ def build_data(with_wallet=True, with_market=True):
         "portfolio": _wallet(cfg) if with_wallet else {"total_usd": None, "holdings": []},
         "market": market,
         "track": track, "track_source": track_source,
+        "since": curve[0][0] if (live and curve) else None,
+        "reasoning": [{"token": r.get("token"), "action": r.get("action"),
+                       "rationale": (r.get("rationale") or "")[:150]}
+                      for r in rows if r.get("kind") == "decision"][-3:][::-1],
         "chart": chart,
         "risk": {"kill": kill * 100,
                  "stop": cfg["risk"]["per_position_stop_pct"] * 100, "policy": cfg["decision"]["policy"]},
@@ -271,7 +275,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 /* header */
 .head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:0 4px}
 .brand{display:flex;align-items:center;gap:13px}
-.logo{width:42px;height:42px;border-radius:11px;object-fit:cover;background:rgba(255,255,255,.04);border:1px solid var(--bd)}
+.logo{width:46px;height:46px;border-radius:10px;object-fit:contain}
 .nm{display:flex;flex-direction:column;line-height:1.15}
 .nm b{font-size:19px;font-weight:800;letter-spacing:-.3px}
 .nm small{font-weight:500;color:var(--mut);font-size:10.5px;letter-spacing:.4px}
@@ -340,6 +344,12 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .ico.sm{width:17px;height:17px}
 .ico.lt{display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:8px;letter-spacing:-.3px;color:#aeb8d8;background:#1b2334}
 .dotk{width:7px;height:7px;border-radius:50%;background:var(--b);display:inline-block}
+/* agent reasoning */
+.rz{display:flex;gap:14px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12.5px}
+.rz:last-child{border:0}
+.rz .rzt{width:118px;flex:none;font-weight:600}
+.rz .rzr{flex:1;color:var(--mut);line-height:1.5}
+@media(max-width:620px){.rz{flex-direction:column;gap:3px}.rz .rzt{width:auto}}
 /* activity */
 .act{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
 .act:last-child{border:0}
@@ -416,6 +426,11 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
   <div id="lead" class="leadgrid"></div>
 </div>
 
+<div class="card" id="rcard">
+  <div class="ph">Agent reasoning <span>🧠 Gemini · live</span></div>
+  <div id="reason"></div>
+</div>
+
 <div class="card">
   <div class="ph">Recent activity · decision log <span><a href="decisions.jsonl">raw log ↓</a></span></div>
   <div id="activity"></div>
@@ -450,7 +465,8 @@ $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
 const t=D.track,delta=+(t.return_pct-t.buyhold_pct).toFixed(2);
-$('trk').textContent=D.track_source==='backtest'?'1y backtest · real prices':'';
+let _per='';if(D.since){const s=new Date(D.since).getTime(),m=Math.max(0,Math.round((D.generated_ts*1000-s)/60000));_per=' · '+(m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m');}
+$('trk').textContent=D.track_source==='backtest'?'1y backtest · real prices':(D.track_source+_per);
 $('ret').textContent=(delta>=0?'+':'')+delta+'%';$('ret').className='edge num'+(delta>=0?'':' neg');
 $('dd').textContent=t.maxdd_pct+'%';$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';$('tr').textContent=t.trades;
 (function(){const ar=Math.abs(t.return_pct),mr=Math.abs(t.buyhold_pct),mx=Math.max(ar,mr,1);
@@ -484,6 +500,13 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
    <span class="pulse" style="background:${c};box-shadow:0 0 6px ${c}"></span>
    <span class="sc" style="color:${c}">${p?'+':''}${l.score.toFixed(2)}</span></div>`;}).join('');
 }else $('mcard').style.display='none';
+
+// agent reasoning (Gemini) — what it decided and WHY
+if(D.reasoning&&D.reasoning.length){
+ $('reason').innerHTML=D.reasoning.map(r=>{const a=r.action||'';
+  const c=a==='buy'?'var(--g)':(a==='sell'||a==='close')?'var(--b)':'var(--mut)';
+  return `<div class="rz"><span class="rzt"><b style="color:${c}">${a.toUpperCase()}</b> ${r.token||''}</span><span class="rzr">${r.rationale||''}</span></div>`;}).join('');
+}else $('rcard').style.display='none';
 
 // recent activity / decision log
 function actClean(a){
