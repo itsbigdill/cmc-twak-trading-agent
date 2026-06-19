@@ -169,7 +169,7 @@ def build_data(with_wallet=True, with_market=True):
         curve = st.get("equity_curve", [])
     dq = cfg["risk"]["drawdown_dq_reference_pct"] * 100
     ntok = len(cfg["twak"]["token_contracts"])
-    if live and len(curve) >= 5:
+    if live and len(curve) >= 2:
         # REAL performance + chart from the live/paper equity curve
         chart = {"dates": [c[0][:10] for c in curve], "equity": [round(c[1], 4) for c in curve],
                  "benchmark": [], "label": "Live equity" if mode == "live" else "Paper equity"}
