@@ -73,6 +73,7 @@ def _x402_signal(cfg, log) -> None:
     """Pay-per-request for a premium market signal via TWAK x402 (CDP facilitator).
     Real on-chain micro-payment as part of the trade loop (Best-TWAK rubric).
     No-op unless x402.signal_url is configured."""
+    import json
     import subprocess
     url = os.environ.get("X402_SIGNAL_URL") or cfg.get("x402", {}).get("signal_url")
     if not url:
