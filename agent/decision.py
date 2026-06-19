@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 
+from . import llm
 from .signal_engine import Regime, TokenSignal
 
 SYSTEM_PROMPT = """\
@@ -163,18 +164,15 @@ class RotationDecider:
         return decisions
 
 
-# --- LLM decider ---------------------------------------------------------------
-class ClaudeDecider:
+# --- LLM decider (provider-agnostic: Gemini or Claude) -------------------------
+class LLMDecider:
+    """Provider-neutral LLM decision layer. Weighs the already-computed signals
+    and may override the deterministic decider. Uses whichever LLM key is present
+    (see agent.llm); on ANY failure it falls back so the live loop never stalls."""
+
     def __init__(self, cfg: dict, fallback=None):
         self.cfg = cfg
         self.fallback = fallback or RuleBasedDecider(cfg)
-        self._client = None
-
-    def _client_lazy(self):
-        if self._client is None:
-            import anthropic
-            self._client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-        return self._client
 
     def decide(self, snapshot, signals, portfolio, risk_limits):
         payload = build_snapshot_payload(snapshot, signals, portfolio, risk_limits)
@@ -183,21 +181,20 @@ class ClaudeDecider:
             f"{json.dumps(payload, ensure_ascii=False)}\n\n"
             "Поверни рішення у заданій JSON-схемі. Тільки JSON."
         )
-        try:
-            resp = self._client_lazy().messages.create(
-                model=self.cfg["llm"]["model"],
-                max_tokens=self.cfg["llm"]["max_tokens"],
-                system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user}],
-            )
-            text = resp.content[0].text.strip()
-            parsed = json.loads(text)
-            decisions = _validate(parsed.get("decisions", []))
-            if decisions:
-                return decisions
-        except Exception:
-            pass  # logged by caller; fall through to deterministic decider
+        text = llm.complete(user, system=SYSTEM_PROMPT,
+                            max_tokens=self.cfg["llm"]["max_tokens"])
+        if text:
+            try:
+                s = text[text.find("{"): text.rfind("}") + 1]  # strip any ``` fences
+                decisions = _validate(json.loads(s).get("decisions", []))
+                if decisions:
+                    return decisions
+            except Exception:
+                pass  # logged by caller; fall through to deterministic decider
         return self.fallback.decide(snapshot, signals, portfolio, risk_limits)
+
+
+ClaudeDecider = LLMDecider   # backwards-compat alias
 
 
 def _dec(token, action, size_pct, confidence, rationale):
@@ -208,6 +205,8 @@ def _dec(token, action, size_pct, confidence, rationale):
 def build_decider(cfg: dict):
     policy = cfg.get("decision", {}).get("policy", "threshold")
     base = RotationDecider(cfg) if policy == "rotation" else RuleBasedDecider(cfg)
-    if cfg.get("mode") == "live" and os.environ.get("ANTHROPIC_API_KEY"):
-        return ClaudeDecider(cfg, fallback=base)
+    # Wrap with the LLM layer if a provider key (Gemini or Anthropic) exists.
+    # Active in paper too, so it can be validated before go-live without real money.
+    if cfg.get("mode") in ("live", "paper") and llm.available():
+        return LLMDecider(cfg, fallback=base)
     return base

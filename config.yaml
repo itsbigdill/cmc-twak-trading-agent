@@ -104,7 +104,10 @@ decision:
   rotation_downtrend_min_momentum: 0.20  # ...and only if momentum is clearly positive
 
 llm:
-  model: claude-sonnet-4-6      # hackathon Claude credits; sonnet for decisions
+  # Provider-agnostic (agent/llm.py): auto-picks by key — GEMINI_API_KEY -> Gemini
+  # (free tier, default gemini-2.5-flash), else ANTHROPIC_API_KEY -> Claude, else
+  # the deterministic RotationDecider runs alone. Override model via GEMINI_MODEL /
+  # ANTHROPIC_MODEL env. No LLM requirement from the hackathon — this is optional polish.
   max_tokens: 1500
   second_gate: true             # skeptical risk-officer LLM re-check (prompt 3.4)
 

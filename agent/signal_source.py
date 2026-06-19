@@ -99,10 +99,11 @@ class TwakCmcSignalClient:
             return 0.0
 
     def _news_sentiment(self) -> float:
-        """Market mood in [-1,1], LLM-scored from CMC's latest BTC headlines.
-        Fully optional: no API key or any error -> 0.0 (zero effect on the score)."""
-        import os
-        if not os.environ.get("ANTHROPIC_API_KEY"):
+        """Market mood in [-1,1], LLM-scored from CMC's latest BTC headlines via
+        whichever LLM provider is configured (Gemini or Claude). Fully optional:
+        no key or any error -> 0.0 (zero effect on the score)."""
+        from . import llm
+        if not llm.available():
             return 0.0
         try:
             d = self._cmc.call_tool("get_crypto_latest_news", {"id": "1"}) or {}
@@ -110,18 +111,12 @@ class TwakCmcSignalClient:
             titles = [r[0] for r in rows[:8] if isinstance(r, list) and r]
             if not titles:
                 return 0.0
-            import anthropic
-            if self._llm is None:
-                self._llm = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"],
-                                                timeout=20.0)
             prompt = ("Score the overall crypto-market sentiment of these headlines "
                       "from -1 (very bearish) to +1 (very bullish). Reply with ONLY "
                       "the number.\n\n" + "\n".join(f"- {t}" for t in titles))
-            resp = self._llm.messages.create(
-                model="claude-haiku-4-5-20251001", max_tokens=10,
-                messages=[{"role": "user", "content": prompt}])
+            text = llm.complete(prompt, max_tokens=16, timeout=20.0)
             import re
-            mtch = re.search(r"-?\d*\.?\d+", resp.content[0].text)
+            mtch = re.search(r"-?\d*\.?\d+", text or "")
             return max(-1.0, min(1.0, float(mtch.group()))) if mtch else 0.0
         except Exception:
             return 0.0
