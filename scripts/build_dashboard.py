@@ -334,6 +334,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .lr .sc{width:46px;text-align:right;font-size:11px;color:var(--mut)}
 .ico{width:21px;height:21px;border-radius:50%;background:#141a27;object-fit:cover;vertical-align:middle;border:1px solid var(--bd)}
 .ico.sm{width:17px;height:17px}
+.ico.lt{display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:8px;letter-spacing:-.3px;color:#aeb8d8;background:#1b2334}
 .dotk{width:7px;height:7px;border-radius:50%;background:var(--b);display:inline-block}
 /* activity */
 .act{display:flex;align-items:center;gap:11px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
@@ -424,6 +425,8 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 </div>
 <script>
 const D=/*DATA*/, $=i=>document.getElementById(i);
+// token icon missing on the CDN -> clean letter avatar (no blank gaps)
+function fbk(el,s){el.outerHTML='<span class="ico sm lt">'+(s||'?').slice(0,3)+'</span>';}
 const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#fb7185','rgba(251,113,133,.13)','downtrend'],chop:['#fbbf63','rgba(251,191,99,.13)','chop']};
 $('mode').textContent={live:'LIVE',paper:'PAPER · real signals',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
@@ -442,9 +445,9 @@ $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <img class="ico" src="${h.logo}" onerror="this.outerHTML='<i class=dotk></i>'"/>${h.sym}
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
-const t=D.track;
+const t=D.track,delta=+(t.return_pct-t.buyhold_pct).toFixed(2);
 $('trk').textContent=D.track_source==='backtest'?'1y backtest · real prices':'';
-$('ret').textContent=(t.return_pct>=0?'+':'')+t.return_pct+'%';$('ret').className='edge num'+(t.return_pct>=0?'':' neg');
+$('ret').textContent=(delta>=0?'+':'')+delta+'%';$('ret').className='edge num'+(delta>=0?'':' neg');
 $('dd').textContent=t.maxdd_pct+'%';$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';$('tr').textContent=t.trades;
 (function(){const ar=Math.abs(t.return_pct),mr=Math.abs(t.buyhold_pct),mx=Math.max(ar,mr,1);
  $('cmp').innerHTML=`
@@ -472,7 +475,7 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
   </div>`;
  $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const w=Math.min(50,Math.abs(l.score)*50),p=l.score>=0;
    return `<div class="lr"><span class="rk">${i+1}</span>
-   <img class="ico sm" src="${l.logo}" onerror="this.style.visibility='hidden'"/><span class="tk">${l.sym}</span>
+   <img class="ico sm" src="${l.logo}" onerror="fbk(this,'${l.sym}')"/><span class="tk">${l.sym}</span>
    <span class="bar"><b style="${p?'left:50%':'right:50%'};width:${w}%;background:${p?'var(--g)':'var(--r)'}"></b></span>
    <span class="sc num">${l.score>=0?'+':''}${l.score.toFixed(2)}</span></div>`;}).join('');
 }else $('mcard').style.display='none';
@@ -505,7 +508,7 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  const real=a.tx&&(''+a.tx).startsWith('0x')&&!(''+a.tx).startsWith('0xMOCK');
  const ex=a.kind==='x402'?'https://basescan.org/tx/':'https://bscscan.com/tx/';
  const link=real?` <a href="${ex}${a.tx}" target="_blank">↗</a>`:'';
- const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="this.style.visibility='hidden'"/>`:'<span style="width:17px;display:inline-block"></span>';
+ const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="fbk(this,'${a.token}')"/>`:(a.token?`<span class="ico sm lt">${a.token.slice(0,3)}</span>`:'<span style="width:17px;display:inline-block"></span>');
  return `<div class="act">${ic}<span class="kd" style="color:${col}">${tag}</span><span class="tkn">${a.token||''}</span><span class="rs">${actClean(a)}${link}</span><span class="tm">${a.ts}</span></div>`;
 }).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">Holding cash in the downtrend (capital preserved). Rotations resume when the market turns up; a maintenance trade keeps the daily minimum.</div>';
 
