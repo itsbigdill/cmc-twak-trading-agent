@@ -50,6 +50,9 @@ def load_config(path: str = "config.yaml") -> dict:
     bench = cfg["regime"]["benchmark"]
     trade = list(cfg["twak"]["token_contracts"])
     cfg["whitelist"] = [bench] + [t for t in trade if t != bench] + [cfg["quote_asset"]]
+    # Mode is overridable by env so a server can run paper/live without editing
+    # (and conflicting with) the repo's config.yaml on git pull.
+    cfg["mode"] = os.environ.get("AGENT_MODE", cfg.get("mode", "dry_run"))
     return cfg
 
 

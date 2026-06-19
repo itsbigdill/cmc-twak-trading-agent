@@ -17,8 +17,9 @@ systemctl stop cmc-twak-agent || true
 echo "== clearing dry-run state =="
 rm -f state/portfolio.json logs/decisions.jsonl
 
-echo "== mode -> live =="
-sed -i 's/^mode: .*/mode: live            # LIVE trading via TWAK/' config.yaml
+echo "== mode -> live (via .env, survives git pull) =="
+grep -q '^AGENT_MODE=' .env && sed -i 's/^AGENT_MODE=.*/AGENT_MODE=live/' .env || echo 'AGENT_MODE=live' >> .env
+export AGENT_MODE=live
 
 echo "== reading on-chain USDT balance =="
 SEED=$(twak balance --token "$USDT_CONTRACT" --chain bsc --json \
