@@ -77,8 +77,12 @@ signal:
     fear_greed: 0.10
     news: 0.10
     funding: 0.10        # CMC derivatives funding rate, contrarian (0 in price-only backtest)
+    dominance: 0.05      # CMC BTC dominance regime tilt: BTC dominating -> risk-off for alts
+    x402: 0.08           # premium market bias bought per-request via x402 (0 when not paid)
   funding_scale: 0.01    # funding rate that maps to a full ±1 contribution (CMC returns
                          # ~0.002 typical, ~0.005+ crowded; 0.01 keeps it a bounded tilt)
+  dominance_ref: 54.0    # neutral BTC dominance; above -> alts tilted down, below -> up
+  dominance_scale: 12.0  # dominance points away from ref that map to a full ±1 tilt
   rsi_oversold: 30
   rsi_overbought: 70
   entry_threshold: 0.25         # |score| must exceed this to act (lower = participate more,
@@ -172,6 +176,7 @@ bnb_sdk:
   agent_name: cmc-twak-trading-agent
   enabled: true
   agent_id: "138200"            # ERC-8004 identity minted on BSC mainnet (special prize)
+  attest_every_n_ticks: 96      # write track record on-chain to the identity ~daily (15-min ticks)
   # tx: https://bscscan.com/tx/0x64ffc8dbe7b38428bdc456839456fe12ab8a8702581ee2d679c5b21727eb45ca
 
 # --- Persistence ----------------------------------------------------------

@@ -27,18 +27,22 @@ app.use(paymentMiddleware({
 }, rs));
 
 app.get("/signal", (req, res) => {
-  let regime = "unknown", top = [];
+  let regime = "unknown", top = [], bias = 0;
   try {
     const sigs = fs.readFileSync(LOG, "utf8").trim().split("\n").slice(-300)
       .map(l => { try { return JSON.parse(l); } catch { return null; } })
       .filter(r => r && r.kind === "signal");
     if (sigs.length) {
       regime = sigs[sigs.length - 1].regime;
-      top = sigs.slice(-41).sort((a, b) => b.score - a.score).slice(0, 3)
+      const recent = sigs.slice(-41);                                  // latest universe sweep
+      top = recent.slice().sort((a, b) => b.score - a.score).slice(0, 3)
         .map(s => ({ token: s.token, score: s.score }));
+      // premium market bias = aggregate momentum across the universe, in [-1,1]
+      const avg = recent.reduce((s, r) => s + (r.score || 0), 0) / recent.length;
+      bias = Math.max(-1, Math.min(1, +avg.toFixed(4)));
     }
   } catch {}
-  res.json({ source: "CTA x402 premium signal", regime, top, ts: Date.now() });
+  res.json({ source: "CTA x402 premium signal", regime, top, bias, ts: Date.now() });
 });
 
 app.listen(4021, () => console.log("x402 signal server on :4021"));

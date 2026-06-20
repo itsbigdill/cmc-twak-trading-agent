@@ -65,6 +65,7 @@ class PortfolioState:
     day_start_equity: float = 0.0
     trades_today: int = 0
     last_trade_ts: float = 0.0
+    x402_bias: float = 0.0       # premium market bias from the last x402 signal (used in scoring)
 
     # ----- equity / drawdown -------------------------------------------------
     def mark_equity(self, mark_prices: dict[str, float], iso_ts: str) -> float:

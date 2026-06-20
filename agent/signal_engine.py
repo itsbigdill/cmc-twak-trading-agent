@@ -68,6 +68,15 @@ def funding_component(funding_pct: float, scale: float) -> float:
     return _clip(-funding_pct / scale)
 
 
+def dominance_component(dom: float, ref: float, scale: float) -> float:
+    """CMC BTC dominance regime tilt: BTC dominating (dom > ref) is risk-off for alts
+    (negative); falling dominance is risk-on (positive). 0 at the neutral ref, so the
+    price-only backtest (dom == ref) is unaffected."""
+    if not scale:
+        return 0.0
+    return _clip((ref - dom) / scale)
+
+
 @dataclass
 class TokenSignal:
     token: str
@@ -113,6 +122,10 @@ def score_token(token: str, data: Mapping, regime: Regime, cfg: Mapping) -> Toke
         "news": _clip(float(data.get("news_sentiment", 0.0))),
         "funding": funding_component(float(data.get("funding_rate", 0.0)),
                                      cfg["signal"].get("funding_scale", 0.05)),
+        "dominance": dominance_component(
+            float(data.get("btc_dominance", cfg["signal"].get("dominance_ref", 54.0))),
+            cfg["signal"].get("dominance_ref", 54.0), cfg["signal"].get("dominance_scale", 12.0)),
+        "x402": _clip(float(data.get("x402_bias", 0.0))),
     }
     raw = sum(comps[k] * w[k] for k in w)
 

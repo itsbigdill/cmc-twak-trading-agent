@@ -69,9 +69,10 @@ def reconcile(state: PortfolioState, log: DecisionLog) -> None:
                   action=o.action, note="left PENDING by prior run; not resent")
 
 
-def _x402_signal(cfg, log) -> None:
+def _x402_signal(cfg, log, state) -> None:
     """Pay-per-request for a premium market signal via TWAK x402 (CDP facilitator).
-    Real on-chain micro-payment as part of the trade loop (Best-TWAK rubric).
+    Real on-chain micro-payment as part of the trade loop (Best-TWAK rubric). The paid
+    signal's `bias` is stored on state and fed into scoring next ticks (load-bearing).
     No-op unless x402.signal_url is configured."""
     import json
     import subprocess
@@ -92,10 +93,42 @@ def _x402_signal(cfg, log) -> None:
         if not tx:
             m = re.search(r"0x[0-9a-fA-F]{64}", raw)
             tx = m.group(0) if m else None
+        # the premium signal is the resource response body (twak nests it under "data")
+        sig = data.get("data") if isinstance(data.get("data"), dict) else data
+        bias = sig.get("bias") if isinstance(sig, dict) else None
+        if bias is not None:
+            try:
+                state.x402_bias = max(-1.0, min(1.0, float(bias)))   # <- now affects scoring
+            except (TypeError, ValueError):
+                pass
         log.event("x402", url=url, tx=tx, paid=data.get("amountPaid") or cap,
-                  signal=data.get("data") or data)
+                  bias=state.x402_bias, signal=sig)
     except Exception as e:
         log.event("x402_error", error=str(e))
+
+
+def _erc8004_attest(cfg, state, log) -> None:
+    """Write the agent's live track record on-chain to its ERC-8004 identity metadata
+    (Best-BNB-SDK: the identity becomes load-bearing — an on-chain, verifiable reputation
+    record, not just a minted NFT). No-op without an agent_id; graceful on error."""
+    import json
+    import re
+    import subprocess
+    aid = str(cfg.get("bnb_sdk", {}).get("agent_id") or "")
+    if not aid:
+        return
+    eq = state.equity_curve[-1][1] if state.equity_curve else (state.initial_equity or 0.0)
+    ret = (eq / state.initial_equity - 1) * 100 if state.initial_equity else 0.0
+    perf = json.dumps({"equity": round(eq, 2), "return_pct": round(ret, 2),
+                       "trades": state.trade_count_total,
+                       "dd_pct": round(state.current_drawdown(eq) * 100, 2)})
+    try:
+        out = subprocess.run(["twak", "erc8004", "set-metadata", aid, "cta-perf", perf, "--json"],
+                             capture_output=True, text=True, timeout=120)
+        m = re.search(r"0x[0-9a-fA-F]{64}", (out.stdout or "") + (out.stderr or ""))
+        log.event("erc8004_attest", agent_id=aid, perf=perf, tx=m.group(0) if m else None)
+    except Exception as e:
+        log.event("erc8004_error", error=str(e))
 
 
 def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason, now=None) -> None:
@@ -157,7 +190,11 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     state.tick_n += 1
     # pay-per-request premium signal via x402 every Nth tick (real micro-payment)
     if state.tick_n % max(1, cfg.get("x402", {}).get("every_n_ticks", 4)) == 0:
-        _x402_signal(cfg, log)
+        _x402_signal(cfg, log, state)
+    # attest the agent's track record on-chain to its ERC-8004 identity (~daily)
+    if cfg.get("mode") in ("live", "paper") and \
+       state.tick_n % max(1, cfg.get("bnb_sdk", {}).get("attest_every_n_ticks", 96)) == 0:
+        _erc8004_attest(cfg, state, log)
     log.event("tick", tick_id=tick_id, equity=equity,
               drawdown=round(state.current_drawdown(equity), 4),
               dq_headroom=round(cfg["risk"]["drawdown_dq_reference_pct"]
@@ -203,6 +240,9 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     # refresh equity after any stops
     equity = state.mark_equity(prices, tick_id)
 
+    # premium x402 bias (bought per-request) tilts every token's score -> load-bearing
+    for d in snapshot.values():
+        d["x402_bias"] = state.x402_bias
     signals = score_universe(snapshot, cfg)
     for t, s in signals.items():
         log.event("signal", token=t, score=s.score, regime=s.regime.value,
