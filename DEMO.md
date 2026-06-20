@@ -80,8 +80,9 @@ SCREEN: dashboard "sponsor stack" card. Then in the terminal:
 `twak x402 quote "$X402_SIGNAL_URL"`
 `twak x402 request "$X402_SIGNAL_URL" --max-payment 1000`
 `twak erc8004 show 138200 --chain bsc`
-`twak erc8004 get-metadata 138200 --key cta-perf --chain bsc`
-decode: `python3 -c "print(bytes.fromhex('PASTE_HEX_WITHOUT_0x').decode())"`
+`twak erc8004 get-metadata 138200 --key cta-perf --chain bsc`   (shows the raw 0x value)
+decode it (self-contained, no copy-paste needed):
+`twak erc8004 get-metadata 138200 --key cta-perf --chain bsc | python3 -c "import sys,re;h=re.search(r'0x([0-9a-fA-F]+)',sys.stdin.read()).group(1);print(bytes.fromhex(h).decode())"`
 -> {"equity":35.3,"return_pct":0.1,"trades":22}
 Then cut to the bscscan tab.
 
@@ -115,6 +116,8 @@ twak x402 quote "$X402_SIGNAL_URL"
 twak x402 request "$X402_SIGNAL_URL" --max-payment 1000
 twak erc8004 show 138200 --chain bsc
 twak erc8004 get-metadata 138200 --key cta-perf --chain bsc
+# decode the value in one go (no placeholder to fill in):
+twak erc8004 get-metadata 138200 --key cta-perf --chain bsc | python3 -c "import sys,re;h=re.search(r'0x([0-9a-fA-F]+)',sys.stdin.read()).group(1);print(bytes.fromhex(h).decode())"
 ```
 Dashboard:  http://cmc-twak-agent.duckdns.org:8888
 bscscan:    https://bscscan.com/address/0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19
