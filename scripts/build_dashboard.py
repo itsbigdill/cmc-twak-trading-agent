@@ -225,20 +225,42 @@ def build_data(with_wallet=True, with_market=True):
         "risk": {"kill": kill * 100,
                  "stop": cfg["risk"]["per_position_stop_pct"] * 100, "policy": cfg["decision"]["policy"]},
         "blocked": len([r for r in rows if r.get("kind") == "blocked"]),
-        "activity": [
-            {"kind": r.get("kind"), "token": r.get("token", ""), "action": r.get("action", ""),
-             "reason": (r.get("reason") or r.get("note") or "")[:70], "tx": r.get("tx_hash") or r.get("tx"),
-             "realized": r.get("realized"),
-             # entry price: logged fill_price, else backfill from a still-held position's avg
-             "fill_price": r.get("fill_price") or ((st.get("positions") or {}).get(r.get("token"), {}).get("avg_price")
-                                                   if r.get("action") == "buy" else None),
-             "logo": _logo(r.get("token", ""), cfg["twak"]["token_contracts"].get(r.get("token", ""))),
-             "ts": (r.get("ts") or "")[11:16]}
-            for r in rows if r.get("kind") in ("fill", "blocked", "x402", "position_stop", "kill_switch")
-            # a hold/close "*_allowed" is a no-op verdict, not a real block -> hide it
-            and not (r.get("kind") == "blocked" and str(r.get("reason", "")).endswith("_allowed"))
-        ][-10:][::-1],
+        "activity": _activity(rows, cfg, st),
     }
+
+
+def _activity(rows, cfg, st):
+    """Full event log, enriched: buys show entry+size; closes show entry->exit + P&L% + value
+    (round-trips reconstructed); x402 and blocks kept."""
+    tc = cfg["twak"]["token_contracts"]
+    held = {t: p.get("avg_price") for t, p in (st.get("positions") or {}).items()}
+    lots, items = {}, []
+    for r in rows:
+        k = r.get("kind"); tok = r.get("token", ""); ts = (r.get("ts") or "")[11:16]
+        if k == "fill":
+            act = r.get("action"); size = r.get("size_usd") or 0; px = r.get("fill_price")
+            if act == "buy":
+                lots.setdefault(tok, []).append((px, size))
+                items.append({"kind": "fill", "action": "buy", "token": tok,
+                              "entry": px or held.get(tok), "exit": None, "pnl": None,
+                              "value": round(size, 2), "logo": _logo(tok, tc.get(tok)), "ts": ts})
+            elif act in ("close", "sell"):
+                ls = lots.get(tok, []); cost = sum(s for _, s in ls)
+                entry = (sum(p * s for p, s in ls) / cost) if (ls and all(p for p, _ in ls) and cost) else None
+                lots[tok] = []; realized = r.get("realized")
+                pnl = (realized / cost * 100) if (realized is not None and cost) else None
+                exitpx = px if px else (entry * (1 + pnl / 100) if (entry and pnl is not None) else None)
+                items.append({"kind": "fill", "action": "close", "token": tok,
+                              "entry": entry, "exit": exitpx, "pnl": round(pnl, 2) if pnl is not None else None,
+                              "realized": realized, "value": round(cost, 2) if cost else None,
+                              "logo": _logo(tok, tc.get(tok)), "ts": ts})
+        elif k == "x402":
+            items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts})
+        elif k == "blocked" and not str(r.get("reason", "")).endswith("_allowed"):
+            items.append({"kind": "blocked", "token": tok, "reason": (r.get("reason") or "")[:36], "ts": ts})
+        elif k in ("position_stop", "kill_switch"):
+            items.append({"kind": k, "token": tok, "ts": ts})
+    return items[-12:][::-1]
 
 
 def main():
@@ -385,8 +407,10 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .act .kd{font-weight:700;width:60px;font-size:10.5px;letter-spacing:.3px}
 .act .tkn{width:52px;font-weight:600}
 .act .rs{flex:1;color:var(--mut)}
-.act .apnl{font-weight:700;font-variant-numeric:tabular-nums;margin-right:10px}
+.act .apnl{width:60px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+.act .aval{width:62px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums}
 .act .tm{color:var(--mut2);font-size:10.5px;font-variant-numeric:tabular-nums;width:42px;text-align:right}
+@media(max-width:620px){.act .aval{display:none}}
 .act a{color:var(--b);text-decoration:none;font-weight:600}
 /* footer config */
 .foot{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:2px}
@@ -560,7 +584,7 @@ if(D.reasoning&&D.reasoning.length){
 
 // open positions: entry price -> current price -> unrealized P&L
 if(D.positions&&D.positions.length){
- $('posmeta').textContent=D.positions.length+' open · entry → now';
+ $('posmeta').textContent=D.positions.length+' open';
  $('positions').innerHTML=D.positions.map(p=>{const up=p.pnl>=0,c=up?'var(--g)':'var(--r)';
   return `<div class="po"><span class="pol"><img class="ico sm" src="${p.logo}" onerror="fbk(this,'${p.token}')"/><b>${p.token}</b></span>`
    +`<span class="poe">${fmtpx(p.entry)} → ${fmtpx(p.now)}</span>`
@@ -568,36 +592,25 @@ if(D.positions&&D.positions.length){
    +`<span class="pov">$${p.value.toFixed(2)}</span></div>`;}).join('');
 }else $('poscard').style.display='none';
 
-// recent activity / decision log
-function actClean(a){
- if(a.kind==='fill'){
-  const px=a.fill_price?('@ '+fmtpx(a.fill_price)):'';
-  return ((a.action==='buy'?'entered ':'exited ')+px).trim();}
- if(a.kind==='blocked'){const r=a.reason||'';
-  if(r.includes('min_seconds'))return 'rate-limited';
-  if(r.includes('daily_pause'))return 'daily pause (risk-off)';
-  if(r.includes('drawdown_kill'))return 'kill switch';
-  if(r.includes('concentration'))return 'concentration cap';
-  if(r.includes('not_tradeable'))return 'off-universe';
-  if(r.includes('low_confidence'))return 'low confidence';
-  if(r.includes('max_trades'))return 'daily trade cap';
-  if(r.includes('token_risk'))return 'token risk too high';
-  return r.split(':')[0];}
- if(a.kind==='x402')return 'paid $0.001 for premium signal';
- if(a.kind==='position_stop')return 'per-position stop';
- if(a.kind==='kill_switch')return 'kill switch · liquidate all';
- return a.reason||'';}
+// recent activity — full log, enriched: buys = entry+size; closes = entry→exit + P&L% + value
 $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
- const isBuy=a.kind==='fill'&&a.action==='buy', isClose=a.kind==='fill'&&(a.action==='close'||a.action==='sell');
- const col=isBuy?'var(--g)':isClose?'var(--b)':a.kind==='blocked'?'var(--am)':a.kind==='x402'?'var(--b)':'var(--r)';
- const tag=isBuy?'BUY':isClose?'CLOSE':a.kind==='blocked'?'BLOCKED':a.kind==='x402'?'X402':a.kind.replace('_',' ').toUpperCase();
- const real=a.tx&&(''+a.tx).startsWith('0x')&&!(''+a.tx).startsWith('0xMOCK');
- const ex=a.kind==='x402'?'https://basescan.org/tx/':'https://bscscan.com/tx/';
- const link=real?` <a href="${ex}${a.tx}" target="_blank">↗</a>`:'';
- const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="fbk(this,'${a.token}')"/>`:(a.token?`<span class="ico sm lt">${a.token.slice(0,3)}</span>`:'<span style="width:17px;display:inline-block"></span>');
- const pnl=(a.kind==='fill'&&(a.action==='close'||a.action==='sell')&&a.realized!=null&&a.realized!==0)?`<span class="apnl" style="color:${a.realized>=0?'var(--g)':'var(--r)'}">${a.realized>=0?'+':'−'}$${Math.abs(a.realized).toFixed(2)}</span>`:'';
- return `<div class="act">${ic}<span class="kd" style="color:${col}">${tag}</span><span class="tkn">${a.token||''}</span><span class="rs">${actClean(a)}${link}</span>${pnl}<span class="tm">${a.ts}</span></div>`;
-}).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">Holding cash in the downtrend (capital preserved). Rotations resume when the market turns up; a maintenance trade keeps the daily minimum.</div>';
+ const t=a.ts||'';
+ if(a.kind==='fill'){
+  const buy=a.action==='buy', col=buy?'var(--g)':'var(--b)', tag=buy?'BUY':'CLOSE';
+  const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="fbk(this,'${a.token}')"/>`:`<span class="ico sm lt">${(a.token||'').slice(0,3)}</span>`;
+  const prices=buy?(a.entry?fmtpx(a.entry):'entered'):((a.entry?fmtpx(a.entry):'—')+' → '+(a.exit?fmtpx(a.exit):'—'));
+  const pnl=(!buy&&a.pnl!=null)?`<span class="apnl" style="color:${a.pnl>=0?'var(--g)':'var(--r)'}">${a.pnl>=0?'+':''}${a.pnl}%</span>`:'<span class="apnl"></span>';
+  const val=a.value!=null?`<span class="aval">$${a.value.toFixed(2)}</span>`:'<span class="aval"></span>';
+  return `<div class="act">${ic}<span class="kd" style="color:${col}">${tag}</span><span class="tkn">${a.token||''}</span><span class="rs num">${prices}</span>${pnl}${val}<span class="tm">${t}</span></div>`;
+ }
+ if(a.kind==='x402'){const real=a.tx&&(''+a.tx).startsWith('0x')&&!(''+a.tx).startsWith('0xMOCK');
+  const link=real?` <a href="https://basescan.org/tx/${a.tx}" target="_blank">↗</a>`:'';
+  return `<div class="act"><span class="ico sm lt">x4</span><span class="kd" style="color:var(--b)">X402</span><span class="tkn"></span><span class="rs">paid $0.001 · premium signal${link}</span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;}
+ if(a.kind==='blocked'){
+  return `<div class="act"><span style="width:17px;display:inline-block"></span><span class="kd" style="color:var(--am)">BLOCKED</span><span class="tkn">${a.token||''}</span><span class="rs">${a.reason||''}</span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;}
+ const lbl={position_stop:'STOP',kill_switch:'KILL'}[a.kind]||(a.kind||'').toUpperCase();
+ return `<div class="act"><span style="width:17px;display:inline-block"></span><span class="kd" style="color:var(--r)">${lbl}</span><span class="tkn">${a.token||''}</span><span class="rs"></span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;
+}).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">No activity yet — the agent is holding cash. Trades appear here as it acts.</div>';
 
 // ---- chart (re-rendered per time tab) ----
 function drawChart(curve){
