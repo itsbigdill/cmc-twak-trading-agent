@@ -123,7 +123,8 @@ def _erc8004_attest(cfg, state, log) -> None:
                        "trades": state.trade_count_total,
                        "dd_pct": round(state.current_drawdown(eq) * 100, 2)})
     try:
-        out = subprocess.run(["twak", "erc8004", "set-metadata", aid, "cta-perf", perf, "--json"],
+        out = subprocess.run(["twak", "erc8004", "set-metadata", aid, "--key", "cta-perf",
+                              "--value", perf, "--chain", "bsc", "--json"],
                              capture_output=True, text=True, timeout=120)
         m = re.search(r"0x[0-9a-fA-F]{64}", (out.stdout or "") + (out.stderr or ""))
         log.event("erc8004_attest", agent_id=aid, perf=perf, tx=m.group(0) if m else None)
