@@ -29,10 +29,12 @@ chart in the red. Then the dashboard (green MAX DRAWDOWN tile). Then the termina
 `systemctl status cmc-twak-agent` showing active.
 
 VOICEOVER:
-> The market is down about half from its peak. Fear and Greed is at 20.
+> Looks like the market's been red since the start of the year. Prices are half off
+> their peak. Not the best moment for a trading bot, right?
 >
-> I built an agent that trades through this on its own. It reads the market every 15
-> minutes and signs its own swaps on BSC.
+> Looks like we need an agent that can survive a bear market and trade its way
+> through it. So that's what I built. It reads the market every 15 minutes and signs
+> its own swaps on BSC.
 
 ## 0:15 · How it reads the market (30s)
 SCREEN: `.venv/bin/python scripts/verify_cmc.py` (tool list). Then
