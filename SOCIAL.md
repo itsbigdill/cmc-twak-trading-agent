@@ -95,7 +95,10 @@ near **June 28** with final results to harvest more engagement.
 ## Assets
 - Posting account: **@itsabigdill** (language: English)
 - Dashboard screenshot: `open dashboard/index.html`, full-screen, screenshot
-- Demo video: per DEMO.md
+- Demo video (YouTube): https://www.youtube.com/watch?v=PClf6rBVbos
+  (for T2: prefer uploading the video natively to the tweet for reach; drop the
+  YouTube link in the final reply instead, since external links lower tweet reach)
 - Final reply tweet, drop the links:
   > Code + reproducible decision logs: https://github.com/DanMarteens/cmc-twak-trading-agent
+  > Demo video: https://www.youtube.com/watch?v=PClf6rBVbos
   > DoraHacks BUIDL: https://dorahacks.io/buidl/45594
