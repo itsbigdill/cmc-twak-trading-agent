@@ -1,199 +1,104 @@
 # Demo video script + shot list (~3 min)
 
-Honest walkthrough built as a small story. Tone: a builder showing you something
-they're into. Warm, specific, no hype. The screen carries the receipts.
-Voiceover is written one short sentence per line, on purpose. Read it that way,
-with small pauses. Easy to follow, easy to teleprompt.
+Plain, honest walkthrough. Talk like you are explaining it to a friend, not
+pitching. No slogans, no superlatives. The screen shows the proof; the voiceover
+just explains what we are looking at.
 
 ## Framing decision (read first)
-The live paper return right now is roughly flat-to-slightly-negative, and that is
-fine. We do NOT flex the live return number. Two reasons it still works:
-- The contest resets on June 22, so today's paper % is not the scored number.
-- The agent's own regime reads `trend_down`. In a red market, flat is the win.
-So on the dashboard we lead the eye with the GREEN survival stats (MAX DRAWDOWN
-1.35%, DQ HEADROOM), and the impressive return number comes from the BACKTEST,
-not the live tile.
+The live paper return right now is roughly flat, and that is fine. Do NOT flex the
+live return. The contest resets on June 22, so today's paper % is not the scored
+number, and in a red market flat is a good outcome. On the dashboard lead the eye
+with the green survival stats (MAX DRAWDOWN 1.35%, DQ HEADROOM). The strong return
+number comes from the BACKTEST, not the live tile.
 
 ## Pre-flight checklist (do before recording)
-- Terminal font bumped to ~18pt, dark theme, wide window. Clear scrollback.
-- SSH into the VPS in that terminal: everything runs from `/opt/cmc-twak-agent`
-  with the env loaded: `cd /opt/cmc-twak-agent && set -a && . ./.env && set +a`
-- Browser tab 1: the dashboard, http://cmc-twak-agent.duckdns.org:8888
+- Terminal font ~18pt, dark theme, wide window, clear scrollback.
+- SSH into the VPS, run from `/opt/cmc-twak-agent` with env loaded:
+  `cd /opt/cmc-twak-agent && set -a && . ./.env && set +a`
+- Browser tab 1: dashboard, http://cmc-twak-agent.duckdns.org:8888
 - Browser tab 2: bscscan, https://bscscan.com/address/0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19
-- Browser tab 3: the CoinMarketCap homepage (for the opener shot).
+- Browser tab 3: the CoinMarketCap homepage (opener shot).
 - Editor open with `agent/decision.py` and `agent/risk_gate.py`.
-- Record at 1080p or higher. Pre-run each command once so output is warm and there
-  is no debugging on camera. If a command is slow, run it, then trim the dead time.
-- Style rules: no long dashes anywhere. No superlatives. Read numbers as they are.
+- Pre-run each command once so output is warm. Trim dead time in the edit.
+- Style: no long dashes anywhere. Read numbers as they are.
 
 ================================================================================
 
-## 0:00 · Hook: the conflict (25s)
-SCREEN, in order:
-1. Open on the CoinMarketCap homepage: the Fear & Greed gauge on 20 and the 1Y
-   market-cap chart in the red. 4-5s. This anchors the claim AND it is the data
-   the agent reads.
-2. Cut to the dashboard. Let the equity chart and the GREEN "MAX DRAWDOWN 1.35%"
-   tile sit in frame. Do not zoom the red return number.
-3. Quick cut to the terminal: `systemctl status cmc-twak-agent` (the green
-   "active (running)" line is the shot).
+## 0:00 · Opening (20s)
+SCREEN: CoinMarketCap homepage, the Fear & Greed gauge on 20 and the 1Y market-cap
+chart in the red (4-5s). Then the dashboard with the green MAX DRAWDOWN tile. Then
+the terminal: `systemctl status cmc-twak-agent` showing active.
 
 VOICEOVER:
-> Since the start of this year, everything's been red.
+> The market's been red all year. Fear and Greed is at 20, and prices are about half
+> off their peak. Not exactly the moment you'd pick to let a bot trade for you.
 >
-> Looks like we're heading into a bear market.
->
-> Fear and Greed is down at 20.
->
-> The market's off about half from its peak.
->
-> So you'd think this is the worst time to run a trading bot.
->
-> But this is exactly when you want one that knows how to trade it.
->
-> Any bot looks smart when everything's pumping.
->
-> The real test is a market like this.
->
-> Most of them blow up.
->
-> So I built one to survive the down months. Not just ride the up ones.
->
-> It runs on its own.
->
-> It reads the market every 15 minutes.
->
-> It signs its own swaps on BSC.
->
-> Let me show you.
+> That's the problem I wanted to solve. So I built an agent that trades on its own,
+> through markets like this one. It checks the market every 15 minutes and makes its
+> own swaps on BSC. Let me walk you through it.
 
-## 0:25 · How it sees the market (35s)
-SCREEN, in order:
-1. Run `.venv/bin/python scripts/verify_cmc.py` (the tool list is the shot).
-2. Then `tail -f logs/decisions.jsonl` for ~4s, let a tick with RSI / MACD / EMA /
-   regime scroll by, then Ctrl-C.
-3. Optional: point at a `"regime": "trend_down"` line.
+## 0:20 · How it reads the market (35s)
+SCREEN: `.venv/bin/python scripts/verify_cmc.py` (tool list). Then
+`tail -f logs/decisions.jsonl` for a few seconds so a tick scrolls by, Ctrl-C.
 
 VOICEOVER:
-> It all starts with data.
+> It starts with data from CoinMarketCap's Agent Hub. For each coin it looks at
+> momentum: RSI, MACD, moving averages. Then the wider mood: Fear and Greed, Bitcoin
+> dominance, funding.
 >
-> Every 15 minutes it reads CoinMarketCap's Agent Hub.
->
-> Per coin: RSI, MACD, moving averages.
->
-> Then the bigger picture. Fear and Greed. Bitcoin dominance. Funding.
->
-> All of it becomes one score per coin.
->
-> That score is the decision.
->
-> No crystal ball.
->
-> Just the signals you'd check yourself, read without the emotion.
+> All of that turns into a single score per coin, and that score is what decides
+> the trade.
 
-## 1:00 · The strategy, and the honest tradeoff (45s)
-SCREEN, in order:
-1. Editor: `agent/decision.py`, scroll slowly over the RotationDecider.
-2. Editor: `agent/risk_gate.py`, scroll over the stop / daily-pause / kill-switch.
-3. Optional: `config.yaml` lines for the stop, daily loss, and kill numbers.
+## 0:55 · The strategy (45s)
+SCREEN: `agent/decision.py`, then `agent/risk_gate.py`, scrolling slowly. Optional
+`config.yaml` lines for the stop, daily loss, and kill-switch numbers.
 
 VOICEOVER:
-> The strategy is simple, on purpose.
+> The approach is straightforward. When the trend is up, it holds the strongest
+> coins. When it turns, it moves to cash.
 >
-> In an uptrend, it holds the strongest coins.
+> It's cautious by design. In a strong bull run, a more aggressive bot would beat
+> it. But this contest disqualifies you near 30% drawdown, and avoiding that
+> mattered more to me than topping a leaderboard for a day.
 >
-> When things turn, it moves to cash.
->
-> Now the honest part.
->
-> This is a careful agent, not a greedy one.
->
-> In a full bull run, a riskier bot beats it.
->
-> But this contest disqualifies you at around 30% drawdown.
->
-> I cared more about never seeing that number.
->
-> It's spot only too. No shorts. No leverage.
->
-> That's what the Trust Wallet kit allows.
->
-> And every trade clears a risk gate first.
->
-> Stop losses. A daily pause. A kill switch.
+> It only trades spot, no shorts or leverage, and every trade goes through a risk
+> check first: stop losses, a daily pause, and a kill switch.
 
-## 1:45 · Proof: the payoff (40s)   <-- this is where the strong number lives
-SCREEN, in order:
-1. Run the backtest:
-   `.venv/bin/python scripts/backtest.py --policy rotation --universe core --period year`
-   Hold the camera on the final summary line (return, max drawdown).
-2. Then `.venv/bin/python -m agent.reporting` and point at the blocked-trade reasons.
+## 1:40 · Proof (40s)
+SCREEN: run the backtest and hold on the final summary line (return, max drawdown):
+`.venv/bin/python scripts/backtest.py --policy rotation --universe core --period year`
+Then `.venv/bin/python -m agent.reporting` and point at the blocked-trade reasons.
 
 VOICEOVER:
-> So does it work?
+> To test it, I ran a backtest over a full year of real prices. It's a simulation,
+> not a promise. But over a stretch where the market dropped about 47%, the agent
+> was down around 12, and it never hit the disqualification line.
 >
-> This is a backtest on a full year of real prices.
->
-> A backtest is a simulation, not a guarantee.
->
-> But watch this part.
->
-> The market falls about 47 percent.
->
-> The agent only drops around 12.
->
-> It never touches the disqualification line.
->
-> That's the whole idea, holding up.
->
-> And every trade it skips is logged with a reason.
->
-> So you can audit it, not just trust it.
+> And it logs the reason behind every trade it skips, so you can check its decisions
+> instead of taking my word for it.
 
-## 2:25 · The three integrations, with receipts (35s)
-SCREEN, in order:
-1. Dashboard "sponsor stack" card (the four names), 3s.
-2. x402 payment, live:
-   `twak x402 quote "$X402_SIGNAL_URL"`
-   `twak x402 request "$X402_SIGNAL_URL" --max-payment 1000`
-3. ERC-8004 on-chain identity:
-   `twak erc8004 show 138200 --chain bsc`
-   `twak erc8004 get-metadata 138200 --key cta-perf --chain bsc`
-   decode on camera:
-   `python3 -c "print(bytes.fromhex('PASTE_HEX_WITHOUT_0x').decode())"`
-   -> {"equity":35.3,"return_pct":0.1,"trades":22}
-4. Cut to the bscscan tab so the transaction is visibly on-chain.
+## 2:20 · The three integrations (35s)
+SCREEN: dashboard "sponsor stack" card. Then in the terminal:
+`twak x402 quote "$X402_SIGNAL_URL"`
+`twak x402 request "$X402_SIGNAL_URL" --max-payment 1000`
+`twak erc8004 show 138200 --chain bsc`
+`twak erc8004 get-metadata 138200 --key cta-perf --chain bsc`
+decode on camera: `python3 -c "print(bytes.fromhex('PASTE_HEX_WITHOUT_0x').decode())"`
+-> {"equity":35.3,"return_pct":0.1,"trades":22}
+Then cut to the bscscan tab so the transaction is visibly on-chain.
 
 VOICEOVER:
-> Three integrations. Each one does real work.
+> Three things work together here. CoinMarketCap provides the data. Trust Wallet's
+> kit signs the swaps, and it even pays for premium signals on its own, about a tenth
+> of a cent each, over x402.
 >
-> CoinMarketCap is the eyes.
->
-> Trust Wallet's kit signs the swaps.
->
-> It even pays for premium signals itself. About a tenth of a cent each. Over x402.
->
-> Here's one going through.
->
-> And on BNB Chain it has its own ERC-8004 identity.
->
-> It writes its track record straight to the blockchain.
->
-> There's the transaction.
->
-> You can read the numbers off the contract yourself.
+> And on BNB Chain it has its own ERC-8004 identity, where it writes its track record
+> on-chain. You can read those numbers straight off the contract.
 
-## 3:00 · Close: resolution (15s)
-SCREEN: GitHub repo page, then the dashboard URL.
-> That's the agent.
->
-> It's open source.
->
-> Every decision is logged in public.
->
-> The on-chain records are there if you want to check.
->
-> Thanks for watching.
+## 2:55 · Close (15s)
+SCREEN: GitHub repo, then the dashboard URL.
+> That's the agent. It's open source, every decision is logged, and the on-chain
+> records are public if you want to verify any of it. Thanks for watching.
 
 ================================================================================
 
@@ -214,7 +119,5 @@ Dashboard:  http://cmc-twak-agent.duckdns.org:8888
 bscscan:    https://bscscan.com/address/0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19
 
 ## Delivery tips
-Give the hook a little weight, the conflict is real so let it breathe. One short
-sentence at a time, small pauses between them. Speak like you are showing a friend
-something you are proud of, warm but never salesy. Let terminal output sit on
-screen long enough to read.
+Speak calmly, like you are explaining it to a colleague. Let terminal output sit on
+screen long enough to read. Don't sell the numbers, just show them.
