@@ -514,7 +514,7 @@ function applyRange(h,label){
  $('dd').textContent=dd.toFixed(2)+'%';$('hr').textContent=Math.max(0,(t.dq_pct-dd)).toFixed(0)+'%';
  const mkt=t.buyhold_pct,mx=Math.max(Math.abs(ret),Math.abs(mkt),1);
  const bar=(lab,v,op)=>`<div class="cmprow"><span class="cl">${lab}</span><span class="cbar"><b style="width:${(Math.abs(v)/mx*100).toFixed(0)}%;background:${v>=0?'var(--g)':'var(--r)'};opacity:${op}"></b></span><span class="cv" style="color:${v>=0?'var(--g)':'var(--r)'}">${(v>=0?'+':'')+(+v).toFixed(2)}%</span></div>`;
- $('cmp').innerHTML=bar('Bot',ret,1)+bar('Market',mkt,.6);
+ $('cmp').innerHTML=bar('Agent',ret,1)+bar('Market',mkt,.6);
  drawChart(s);
 }
 $('tabs').innerHTML=TABS.map((x,i)=>`<button class="tab${i===TABS.length-1?' on':''}" data-h="${x[1]==null?'':x[1]}" data-l="${x[0]}">${x[0]}</button>`).join('');
