@@ -225,6 +225,9 @@ def build_data(with_wallet=True, with_market=True):
         "risk": {"kill": kill * 100,
                  "stop": cfg["risk"]["per_position_stop_pct"] * 100, "policy": cfg["decision"]["policy"]},
         "blocked": len([r for r in rows if r.get("kind") == "blocked"]),
+        "x402_n": len([r for r in rows if r.get("kind") == "x402"]),
+        "attest_tx": next((r.get("tx") for r in reversed(rows)
+                           if r.get("kind") == "erc8004_attest" and r.get("tx")), None),
         "activity": _activity(rows, cfg, st),
     }
 
@@ -414,6 +417,15 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .act .tm{color:var(--mut2);font-size:10.5px;font-variant-numeric:tabular-nums;width:42px;text-align:right}
 @media(max-width:620px){.act .aval{display:none}}
 .act a{color:var(--b);text-decoration:none;font-weight:600}
+/* sponsor stack */
+.stk{display:flex;align-items:center;gap:13px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.stk:last-child{border:0}
+.stk .sti{font-size:18px;width:24px;text-align:center;flex:none}
+.stk .stm{flex:1;display:flex;flex-direction:column;line-height:1.45}
+.stk .stm b{font-weight:600;font-size:13px}
+.stk .stm span{color:var(--mut);font-size:11.5px}
+.stk .stp{font-size:11px;font-weight:700;color:var(--g);white-space:nowrap}
+.stk .stp a{color:var(--b);text-decoration:none}
 /* footer config */
 .foot{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:2px}
 .fchip{font-size:10.5px;color:var(--mut);background:var(--cell);border:1px solid var(--bd);padding:6px 12px;border-radius:999px}
@@ -496,6 +508,11 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 <div class="card">
   <div class="ph">Recent activity <span><a href="decisions.jsonl">raw log ↓</a></span></div>
   <div id="activity"></div>
+</div>
+
+<div class="card">
+  <div class="ph">How it works · sponsor stack <span>all 3, load-bearing</span></div>
+  <div id="stack"></div>
 </div>
 
 <div class="sponsors"><span>Powered by</span><b>CoinMarketCap Agent Hub</b><span class="dot">·</span><b>Trust Wallet Agent Kit</b><span class="dot">·</span><b>BNB ERC-8004</b><span class="dot">·</span><span class="x402">x402 micropayments</span></div>
@@ -613,6 +630,16 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  const lbl={position_stop:'STOP',kill_switch:'KILL'}[a.kind]||(a.kind||'').toUpperCase();
  return `<div class="act"><span style="width:17px;display:inline-block"></span><span class="kd" style="color:var(--r)">${lbl}</span><span class="tkn">${a.token||''}</span><span class="rs"></span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;
 }).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">No activity yet — the agent is holding cash. Trades appear here as it acts.</div>';
+
+// sponsor stack — all 3 integrations, load-bearing, with live proof
+(function(){const bnb=D.attest_tx?('https://bscscan.com/tx/'+D.attest_tx):('https://bscscan.com/address/'+D.address);
+ const S=[
+  {i:'📊',n:'CoinMarketCap Agent Hub',d:'Fear &amp; Greed · BTC dominance · funding · LLM news → live signal score',p:'3 tools'},
+  {i:'⚡',n:'Trust Wallet Agent Kit',d:'signs its own spot swaps on BSC, risk-screens every token',p:'self-custody'},
+  {i:'💸',n:'x402 micropayments',d:'pays $0.001/signal autonomously — the premium bias tilts decisions',p:(D.x402_n||0)+' paid'},
+  {i:'🤖',n:'BNB ERC-8004 identity',d:'on-chain reputation: auto-attests its live track record',p:`<a href="${bnb}" target="_blank">#${D.agent_id} ↗</a>`}];
+ $('stack').innerHTML=S.map(s=>`<div class="stk"><span class="sti">${s.i}</span><div class="stm"><b>${s.n}</b><span>${s.d}</span></div><span class="stp">${s.p}</span></div>`).join('');
+})();
 
 // ---- chart (re-rendered per time tab) ----
 function drawChart(curve){
