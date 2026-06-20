@@ -438,7 +438,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
     <div>
       <div class="lab" id="retlab">Return</div>
       <div class="edge num" id="ret"></div>
-      <div class="cmp" id="cmp"></div>
+      <div class="sub" id="retsub" style="margin-top:8px"></div>
     </div>
     <div class="trstats">
       <div class="m"><span class="k">Max drawdown</span><span class="x pos num" id="dd"></span></div>
@@ -511,10 +511,8 @@ function applyRange(h,label){
  const ret=(eq.length>1&&eq[0])?(eq[eq.length-1]/eq[0]-1)*100:0, dd=_mdd(eq);
  $('retlab').textContent='Return · '+label;
  $('ret').textContent=(ret>=0?'+':'')+ret.toFixed(2)+'%';$('ret').className='edge num'+(ret>=0?'':' neg');
+ if(eq.length)$('retsub').textContent=fmtpx(eq[0])+' → '+fmtpx(eq[eq.length-1]);
  $('dd').textContent=dd.toFixed(2)+'%';$('hr').textContent=Math.max(0,(t.dq_pct-dd)).toFixed(0)+'%';
- const mkt=t.buyhold_pct,mx=Math.max(Math.abs(ret),Math.abs(mkt),1);
- const bar=(lab,v,op)=>`<div class="cmprow"><span class="cl">${lab}</span><span class="cbar"><b style="width:${(Math.abs(v)/mx*100).toFixed(0)}%;background:${v>=0?'var(--g)':'var(--r)'};opacity:${op}"></b></span><span class="cv" style="color:${v>=0?'var(--g)':'var(--r)'}">${(v>=0?'+':'')+(+v).toFixed(2)}%</span></div>`;
- $('cmp').innerHTML=bar('Agent',ret,1)+bar('Market',mkt,.6);
  drawChart(s);
 }
 $('tabs').innerHTML=TABS.map((x,i)=>`<button class="tab${i===TABS.length-1?' on':''}" data-h="${x[1]==null?'':x[1]}" data-l="${x[0]}">${x[0]}</button>`).join('');
