@@ -11,13 +11,16 @@ Style rules: no long dashes anywhere, use periods, commas, colons, or parenthese
 No superlatives. If a number is on screen, say it plainly. If it's a simulation,
 call it a simulation.
 
-## 0:00 · Hook: the conflict (20s)
-Show the dashboard, then the running service (`systemctl status` / a log tail).
-> "Quick thing first. Every trading bot looks brilliant in a bull market. The real
-> test is the day everything drops, and that's the day most of them blow up. So for
-> BNB Hack I built one for that day specifically. It runs on its own, reads the
-> market every 15 minutes, and signs its own swaps on BSC. Let me show you it
-> actually running."
+## 0:00 · Hook: the conflict (25s)
+Show the live market in the red (a CMC/chart shot), then cut to the dashboard and
+the running service (`systemctl status` / a log tail).
+> "Look at the market right now. It's red, people are losing money, and honestly
+> this is the worst possible time to be running a trading bot. Which is exactly why
+> I built one for it. Anyone's bot looks brilliant when everything's pumping. The
+> real test is a month like this one, and most of them quietly blow up. So for BNB
+> Hack I built an agent to survive the down months, not just ride the up ones. It
+> runs on its own, reads the market every 15 minutes, and signs its own swaps on
+> BSC. Let me show you."
 
 ## 0:20 · How it sees the market (35s)
 Run `python scripts/verify_cmc.py` (tool list), then a real snapshot / log line:

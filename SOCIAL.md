@@ -11,13 +11,13 @@ the demo video to T2.
 
 ---
 
-## Tweet 1 (curiosity-gap hook + required tags + dashboard image)
+## Tweet 1 (bear-market hook + required tags + dashboard image)
 
-> Every trading bot looks like a genius. Right up until the market drops. Then it
-> goes quiet, and so does the account.
+> The market is red right now, and honestly that's the whole point.
 >
-> So I built one with the opposite goal, and it's trading live on BSC for BNB Hack.
-> Fully autonomous, no human in the loop.
+> Anyone can run a trading bot when everything's pumping. The real test is a month
+> like this one, when most bots quietly blow up. That's exactly what I built mine
+> to survive, and it's trading live on BSC for BNB Hack. Fully autonomous.
 >
 > How it works (and what it can't do): 🧵
 >
