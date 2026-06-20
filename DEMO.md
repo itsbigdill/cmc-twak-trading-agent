@@ -93,8 +93,8 @@ VOICEOVER:
 
 ## 2:20 · Close (10s)
 SCREEN: GitHub repo, then the dashboard URL.
-> Open source. Every decision logged. The on-chain records are public. Thanks for
-> watching.
+> Open source. Every decision logged. The on-chain records are public. All the links
+> are in the description.
 
 ================================================================================
 
