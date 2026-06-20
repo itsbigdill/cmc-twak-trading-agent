@@ -128,6 +128,28 @@ def _market(cfg):
         return None
 
 
+_MKT_CACHE = os.path.join(ROOT, "dashboard", "_market_cache.json")
+
+
+def _save_market_cache(market):
+    """Full builds cache the 40-token sweep so cheap --no-market refreshes can reuse
+    the leaderboard + prices instead of re-fetching (avoids hammering the API)."""
+    if not market:
+        return
+    try:
+        os.makedirs(os.path.dirname(_MKT_CACHE), exist_ok=True)
+        json.dump(market, open(_MKT_CACHE, "w"))
+    except Exception:
+        pass
+
+
+def _load_market_cache():
+    try:
+        return json.load(open(_MKT_CACHE))
+    except Exception:
+        return None
+
+
 def _bench_return(prices):
     """REAL equal-weight market return since the agent started, anchored once in
     dashboard/bench_anchor.json (reset by go_live.sh at the live window start)."""
@@ -162,7 +184,11 @@ def build_data(with_wallet=True, with_market=True):
         pass
     mode = cfg.get("mode", "dry_run")
     live = mode in ("live", "paper")
-    market = _market(cfg) if with_market else None
+    if with_market:
+        market = _market(cfg)
+        _save_market_cache(market)        # full sweep -> cache for quick refreshes
+    else:
+        market = _load_market_cache()     # quick build: reuse last full sweep (<=15min old)
     st, curve = {}, []
     if live:
         st = json.load(open(os.path.join(ROOT, cfg["paths"]["state_file"])))
@@ -283,8 +309,13 @@ def main():
     data = build_data(with_wallet=not args.no_wallet, with_market=not args.no_market)
     os.makedirs(os.path.join(ROOT, "dashboard"), exist_ok=True)
     html = TEMPLATE.replace("/*DATA*/", json.dumps(data)).replace("LOGO_SRC", _logo_datauri())
-    with open(os.path.join(ROOT, "dashboard", "index.html"), "w") as f:
+    # atomic write: temp + replace, so a reader (or a concurrent build) never sees a
+    # half-written file when the quick timer and the agent tick overlap.
+    out = os.path.join(ROOT, "dashboard", "index.html")
+    tmp = out + ".tmp"
+    with open(tmp, "w") as f:
         f.write(html)
+    os.replace(tmp, out)
     # publish the raw decision log (tail) for reproducibility / judges
     try:
         from agent.agent import load_config
