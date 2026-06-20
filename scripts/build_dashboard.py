@@ -287,14 +287,8 @@ def _activity(rows, cfg, st):
                               "logo": _logo(tok, tc.get(tok)), "ts": ts})
         elif k == "x402":
             items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts})
-        elif k == "blocked":
-            reason = str(r.get("reason", ""))
-            # skip noise: "_allowed" markers and the per-tick daily-cap retries (the cap
-            # working as designed, repeated every tick -> not informative). Keep meaningful
-            # risk blocks: token risk score, slippage, concentration, confidence, etc.
-            if reason.endswith("_allowed") or reason.startswith("max_trades_per_day"):
-                continue
-            items.append({"kind": "blocked", "token": tok, "reason": reason[:36], "ts": ts})
+        # blocked events are intentionally NOT shown in the feed (the feed is what the
+        # agent DID). Full transparency stays via "raw log" + the rule-adherence count.
         elif k in ("position_stop", "kill_switch"):
             items.append({"kind": k, "token": tok, "ts": ts})
     return items[-12:][::-1]
