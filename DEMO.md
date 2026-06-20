@@ -57,8 +57,8 @@ VOICEOVER:
 >
 > Every trade clears a risk gate first: a stop loss, a daily pause, a kill switch.
 >
-> The contest disqualifies you near 30% drawdown. That is what the gate is built to
-> avoid.
+> And the contest has a hard rule. Blow past about 30% drawdown and you're out, no
+> matter your returns. So this whole gate is here to keep us well clear of that.
 
 ## 1:20 · Proof (30s)
 SCREEN: run the backtest, hold on the final summary line (return, max drawdown):
@@ -66,11 +66,14 @@ SCREEN: run the backtest, hold on the final summary line (return, max drawdown):
 Then `.venv/bin/python -m agent.reporting`, point at the blocked-trade reasons.
 
 VOICEOVER:
-> A backtest over one year of real prices. It is a simulation, not a promise.
+> To see if it actually holds up, I ran it over a full year of real prices. It's a
+> backtest, so a simulation, not a promise.
 >
-> The market fell 47%. The agent was down 12. It never hit the disqualification line.
+> But over a stretch where the market dropped about 47%, the agent was only down
+> around 12, and it never came close to that disqualification line.
 >
-> Every skipped trade is logged with its reason.
+> And whenever it decides not to trade, it writes down why. So you can see its
+> reasoning, not just the result.
 
 ## 1:50 · The three integrations (30s)
 SCREEN: dashboard "sponsor stack" card. Then in the terminal:
@@ -83,13 +86,15 @@ decode: `python3 -c "print(bytes.fromhex('PASTE_HEX_WITHOUT_0x').decode())"`
 Then cut to the bscscan tab.
 
 VOICEOVER:
-> Three integrations, all live. CoinMarketCap is the data.
+> There are three integrations here, and all of them are doing real work.
+> CoinMarketCap gives it the data it reads.
 >
-> Trust Wallet signs the swaps. It also pays for premium signals over x402, a tenth
-> of a cent each.
+> Trust Wallet's kit is what actually signs the swaps. And it even pays for premium
+> signals on its own, about a tenth of a cent each, over x402.
 >
-> On BNB Chain it has an ERC-8004 identity. It writes its track record on-chain. You
-> can read it off the contract.
+> And on BNB Chain it has its own identity, ERC-8004, where it writes its track
+> record straight on-chain. So you don't have to take my word for it. You can read
+> it right off the contract.
 
 ## 2:20 · Close (10s)
 SCREEN: GitHub repo, then the dashboard URL.
