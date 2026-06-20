@@ -479,6 +479,8 @@ const D=/*DATA*/, $=i=>document.getElementById(i);
 // token icon missing on the CDN -> clean letter avatar (no blank gaps)
 function fbk(el,s){el.outerHTML='<span class="ico sm lt">'+(s||'?').slice(0,3)+'</span>';}
 const fmtpx=v=>v>=1?'$'+(+v).toFixed(2):'$'+(+v||0).toPrecision(3);
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const fmt=s=>{if(!s)return'';const d=(''+s).slice(0,10).split('-');return MON[(+d[1]||1)-1]+' '+(+d[2]||'');};
 const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#fb7185','rgba(251,113,133,.13)','downtrend'],chop:['#fbbf63','rgba(251,191,99,.13)','chop']};
 $('mode').textContent={live:'LIVE',paper:'LIVE',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
@@ -598,8 +600,6 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
 }).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">Holding cash in the downtrend (capital preserved). Rotations resume when the market turns up; a maintenance trade keeps the daily minimum.</div>';
 
 // ---- chart (re-rendered per time tab) ----
-const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const fmt=s=>{if(!s)return'';const d=(''+s).slice(0,10).split('-');return MON[(+d[1]||1)-1]+' '+(+d[2]||'');};
 function drawChart(curve){
  const N=curve.length;if(N<2)return;
  const eqA=curve.map(p=>p[1]),dts=curve.map(p=>p[0]);
