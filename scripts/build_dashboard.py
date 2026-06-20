@@ -634,11 +634,11 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
 // sponsor stack — all 3 integrations, load-bearing, with live proof
 (function(){const bnb=D.attest_tx?('https://bscscan.com/tx/'+D.attest_tx):('https://bscscan.com/address/'+D.address);
  const S=[
-  {i:'📊',n:'CoinMarketCap Agent Hub',d:'Fear &amp; Greed · BTC dominance · funding · LLM news → live signal score',p:'3 tools'},
-  {i:'⚡',n:'Trust Wallet Agent Kit',d:'signs its own spot swaps on BSC, risk-screens every token',p:'self-custody'},
-  {i:'💸',n:'x402 micropayments',d:'pays $0.001/signal autonomously — the premium bias tilts decisions',p:(D.x402_n||0)+' paid'},
-  {i:'🤖',n:'BNB ERC-8004 identity',d:'on-chain reputation: auto-attests its live track record',p:`<a href="${bnb}" target="_blank">#${D.agent_id} ↗</a>`}];
- $('stack').innerHTML=S.map(s=>`<div class="stk"><span class="sti">${s.i}</span><div class="stm"><b>${s.n}</b><span>${s.d}</span></div><span class="stp">${s.p}</span></div>`).join('');
+  {i:'📊',n:'CoinMarketCap Agent Hub',p:'3 tools'},
+  {i:'⚡',n:'Trust Wallet Agent Kit',p:'self-custody'},
+  {i:'💸',n:'x402 micropayments',p:(D.x402_n||0)+' paid'},
+  {i:'🤖',n:'BNB ERC-8004 identity',p:`<a href="${bnb}" target="_blank">#${D.agent_id} ↗</a>`}];
+ $('stack').innerHTML=S.map(s=>`<div class="stk"><span class="sti">${s.i}</span><div class="stm"><b>${s.n}</b></div><span class="stp">${s.p}</span></div>`).join('');
 })();
 
 // ---- chart (re-rendered per time tab) ----
