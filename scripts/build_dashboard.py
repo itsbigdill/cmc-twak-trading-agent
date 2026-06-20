@@ -261,8 +261,14 @@ def _activity(rows, cfg, st):
                               "logo": _logo(tok, tc.get(tok)), "ts": ts})
         elif k == "x402":
             items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts})
-        elif k == "blocked" and not str(r.get("reason", "")).endswith("_allowed"):
-            items.append({"kind": "blocked", "token": tok, "reason": (r.get("reason") or "")[:36], "ts": ts})
+        elif k == "blocked":
+            reason = str(r.get("reason", ""))
+            # skip noise: "_allowed" markers and the per-tick daily-cap retries (the cap
+            # working as designed, repeated every tick -> not informative). Keep meaningful
+            # risk blocks: token risk score, slippage, concentration, confidence, etc.
+            if reason.endswith("_allowed") or reason.startswith("max_trades_per_day"):
+                continue
+            items.append({"kind": "blocked", "token": tok, "reason": reason[:36], "ts": ts})
         elif k in ("position_stop", "kill_switch"):
             items.append({"kind": k, "token": tok, "ts": ts})
     return items[-12:][::-1]
