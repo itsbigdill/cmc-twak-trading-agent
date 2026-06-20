@@ -169,10 +169,10 @@ def build_data(with_wallet=True, with_market=True):
         curve = st.get("equity_curve", [])
     dq = cfg["risk"]["drawdown_dq_reference_pct"] * 100
     ntok = len(cfg["twak"]["token_contracts"])
+    fills_n = len([r for r in rows if r.get("kind") == "fill"])   # real trades over the log
     if live and len(curve) >= 2:
-        # REAL performance + chart from the live/paper equity curve
-        chart = {"dates": [c[0][:10] for c in curve], "equity": [round(c[1], 4) for c in curve],
-                 "benchmark": [], "label": "Live equity" if mode == "live" else "Paper equity"}
+        # REAL performance + chart from the live equity curve (full timestamps -> time tabs)
+        chart = {"curve": [[c[0], round(c[1], 4)] for c in curve], "benchmark": [], "label": "Live equity"}
         eq = [c[1] for c in curve]
         init = st.get("initial_equity") or eq[0]
         ret = (eq[-1] / init - 1) * 100 if init else 0.0
@@ -185,11 +185,11 @@ def build_data(with_wallet=True, with_market=True):
         bh = _bench_return(market.get("prices")) if market else None
         track = {"return_pct": round(ret, 2), "buyhold_pct": bh if bh is not None else 0.0,
                  "maxdd_pct": round(mdd * 100, 2), "dq_pct": dq,
-                 "trades": st.get("trade_count_total", 0), "tokens": ntok}
-        track_source = mode                       # live | paper
+                 "trades": fills_n or st.get("trade_count_total", 0), "tokens": ntok}
+        track_source = mode                       # live | paper (label hidden in UI)
     else:
-        chart = {"dates": bt["dates"], "equity": bt["equity"], "benchmark": bt["benchmark"],
-                 "label": "Backtest · 1y real prices"}
+        chart = {"curve": [[d, e] for d, e in zip(bt["dates"], bt["equity"])],
+                 "benchmark": bt["benchmark"], "label": "Equity · 1y"}
         track = {"return_pct": bt["kpis"]["total_return_pct"], "buyhold_pct": bt["kpis"]["buyhold_pct"],
                  "maxdd_pct": bt["kpis"]["max_drawdown_pct"], "dq_pct": bt["kpis"]["dq_pct"],
                  "trades": bt["kpis"]["trades"], "tokens": ntok}
@@ -228,7 +228,7 @@ def build_data(with_wallet=True, with_market=True):
         "activity": [
             {"kind": r.get("kind"), "token": r.get("token", ""), "action": r.get("action", ""),
              "reason": (r.get("reason") or r.get("note") or "")[:70], "tx": r.get("tx_hash") or r.get("tx"),
-             "realized": r.get("realized"),
+             "realized": r.get("realized"), "fill_price": r.get("fill_price"),
              "logo": _logo(r.get("token", ""), cfg["twak"]["token_contracts"].get(r.get("token", ""))),
              "ts": (r.get("ts") or "")[11:16]}
             for r in rows if r.get("kind") in ("fill", "blocked", "x402", "position_stop", "kill_switch")
@@ -317,6 +317,10 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .trgrid{display:grid;grid-template-columns:1.25fr 1fr;gap:30px;align-items:center}
 @media(max-width:720px){.trgrid{grid-template-columns:1fr;gap:20px}}
 .ret{font-size:40px;font-weight:800;letter-spacing:-1px;line-height:1;margin-bottom:4px}
+.tabs{display:flex;gap:6px;margin:-2px 0 16px;flex-wrap:wrap}
+.tab{font-size:11px;font-weight:600;color:var(--mut);background:var(--cell);border:1px solid var(--bd);padding:5px 12px;border-radius:8px;cursor:pointer}
+.tab:hover{color:var(--tx)}
+.tab.on{color:var(--g);border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.06)}
 .cmp{margin-top:18px;display:flex;flex-direction:column;gap:10px}
 .cmprow{display:flex;align-items:center;gap:12px;font-size:12px}
 .cmprow .cl{width:50px;color:var(--mut)}
@@ -429,9 +433,10 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 
 <div class="card">
   <div class="ph">Performance <span id="trk"></span></div>
+  <div class="tabs" id="tabs"></div>
   <div class="trgrid">
     <div>
-      <div class="lab">Bot vs market</div>
+      <div class="lab" id="retlab">Return</div>
       <div class="edge num" id="ret"></div>
       <div class="cmp" id="cmp"></div>
     </div>
@@ -459,7 +464,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 </div>
 
 <div class="card">
-  <div class="ph">Recent activity · decision log <span><a href="decisions.jsonl">raw log ↓</a></span></div>
+  <div class="ph">Recent activity <span><a href="decisions.jsonl">raw log ↓</a></span></div>
   <div id="activity"></div>
 </div>
 
@@ -475,7 +480,7 @@ const D=/*DATA*/, $=i=>document.getElementById(i);
 function fbk(el,s){el.outerHTML='<span class="ico sm lt">'+(s||'?').slice(0,3)+'</span>';}
 const fmtpx=v=>v>=1?'$'+(+v).toFixed(2):'$'+(+v||0).toPrecision(3);
 const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#fb7185','rgba(251,113,133,.13)','downtrend'],chop:['#fbbf63','rgba(251,191,99,.13)','chop']};
-$('mode').textContent={live:'LIVE',paper:'PAPER · real signals',dry_run:'ARMED'}[D.mode]||'ARMED';
+$('mode').textContent={live:'LIVE',paper:'LIVE',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
 $('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago';
 $('chips').innerHTML=[`<span class="chip on">🟢 registered</span>`,
@@ -492,16 +497,29 @@ $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <img class="ico" src="${h.logo}" onerror="this.outerHTML='<i class=dotk></i>'"/>${h.sym}
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
 
-const t=D.track,delta=+(t.return_pct-t.buyhold_pct).toFixed(2);
-let _per='';if(D.since){const s=new Date(D.since).getTime(),m=Math.max(0,Math.round((D.generated_ts*1000-s)/60000));_per=' · '+(m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m');}
-$('trk').textContent=D.track_source==='backtest'?'1y backtest · real prices':(D.track_source+_per);
-$('ret').textContent=(delta>=0?'+':'')+delta+'%';$('ret').className='edge num'+(delta>=0?'':' neg');
-$('dd').textContent=t.maxdd_pct+'%';$('hr').textContent=(t.dq_pct-t.maxdd_pct).toFixed(0)+'%';$('tr').textContent=t.trades;
-(function(){const ar=Math.abs(t.return_pct),mr=Math.abs(t.buyhold_pct),mx=Math.max(ar,mr,1);
- $('cmp').innerHTML=`
-  <div class="cmprow"><span class="cl">Bot</span><span class="cbar"><b style="width:${(ar/mx*100).toFixed(0)}%;background:${t.return_pct>=0?'var(--g)':'var(--r)'}"></b></span><span class="cv ${t.return_pct>=0?'pos':'neg'}">${(t.return_pct>=0?'+':'')+t.return_pct}%</span></div>
-  <div class="cmprow"><span class="cl">Market</span><span class="cbar"><b style="width:${(mr/mx*100).toFixed(0)}%;background:var(--r);opacity:.5"></b></span><span class="cv neg">${t.buyhold_pct}%</span></div>`;
-})();
+const t=D.track, FULL=(D.chart.curve||[]);
+const TABS=[['1H',1],['12H',12],['24H',24],['3D',72],['7D',168],['All',null]];
+$('tr').textContent=t.trades;
+let _per='';if(FULL.length){const m=Math.max(0,Math.round((D.generated_ts*1000-Date.parse(FULL[0][0]))/60000));_per=m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m';}
+$('trk').textContent=_per;
+function _mdd(eq){let pk=eq[0],d=0;for(const v of eq){if(v>pk)pk=v;if(pk>0)d=Math.max(d,(pk-v)/pk);}return d*100;}
+function _slice(h){if(h==null||!FULL.length)return FULL.slice();const cut=D.generated_ts*1000-h*3600*1000;const s=FULL.filter(p=>Date.parse(p[0])>=cut);return s.length<2?FULL.slice(-2):s;}
+function applyRange(h,label){
+ const s=_slice(h),eq=s.map(p=>p[1]);
+ const ret=(eq.length>1&&eq[0])?(eq[eq.length-1]/eq[0]-1)*100:0, dd=_mdd(eq);
+ $('retlab').textContent='Return · '+label;
+ $('ret').textContent=(ret>=0?'+':'')+ret.toFixed(2)+'%';$('ret').className='edge num'+(ret>=0?'':' neg');
+ $('dd').textContent=dd.toFixed(2)+'%';$('hr').textContent=Math.max(0,(t.dq_pct-dd)).toFixed(0)+'%';
+ const mkt=t.buyhold_pct,mx=Math.max(Math.abs(ret),Math.abs(mkt),1);
+ const bar=(lab,v,op)=>`<div class="cmprow"><span class="cl">${lab}</span><span class="cbar"><b style="width:${(Math.abs(v)/mx*100).toFixed(0)}%;background:${v>=0?'var(--g)':'var(--r)'};opacity:${op}"></b></span><span class="cv" style="color:${v>=0?'var(--g)':'var(--r)'}">${(v>=0?'+':'')+(+v).toFixed(2)}%</span></div>`;
+ $('cmp').innerHTML=bar('Bot',ret,1)+bar('Market',mkt,.6);
+ drawChart(s);
+}
+$('tabs').innerHTML=TABS.map((x,i)=>`<button class="tab${i===TABS.length-1?' on':''}" data-h="${x[1]==null?'':x[1]}" data-l="${x[0]}">${x[0]}</button>`).join('');
+$('tabs').querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+ $('tabs').querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+ applyRange(b.dataset.h===''?null:+b.dataset.h,b.dataset.l);}));
+applyRange(null,'All');
 
 $('cfg').innerHTML=[`<span class="fchip">strategy <b>${D.risk.policy}</b></span>`,
  `<span class="fchip k">per-position stop <b>${D.risk.stop}%</b></span>`,
@@ -549,10 +567,11 @@ if(D.positions&&D.positions.length){
 // recent activity / decision log
 function actClean(a){
  if(a.kind==='fill'){
-  if(a.action==='buy'){const m=(a.reason||'').match(/\$[\d.]+/);return 'entered'+(m?' '+m[0]:'');}
-  const r=a.realized;            // realized P&L on the close — the real win/loss
-  if(r!=null&&r!==0){const g=r>=0;return 'exited <b style="color:'+(g?'var(--g)':'var(--r)')+'">'+(g?'+':'−')+'$'+Math.abs(r).toFixed(2)+'</b>';}
-  return 'exited';}
+  const px=a.fill_price?(' @ '+fmtpx(a.fill_price)):'';
+  if(a.action==='buy')return 'entered'+px;
+  const r=a.realized;            // realized P&L on the close
+  const pnl=(r!=null&&r!==0)?(' · <b style="color:'+(r>=0?'var(--g)':'var(--r)')+'">'+(r>=0?'+':'−')+'$'+Math.abs(r).toFixed(2)+'</b>'):'';
+  return 'exited'+px+pnl;}
  if(a.kind==='blocked'){const r=a.reason||'';
   if(r.includes('min_seconds'))return 'rate-limited';
   if(r.includes('daily_pause'))return 'daily pause (risk-off)';
@@ -578,49 +597,48 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  return `<div class="act">${ic}<span class="kd" style="color:${col}">${tag}</span><span class="tkn">${a.token||''}</span><span class="rs">${actClean(a)}${link}</span><span class="tm">${a.ts}</span></div>`;
 }).join('')||'<div class="rs" style="color:var(--mut2);font-size:12px;padding:6px 0">Holding cash in the downtrend (capital preserved). Rotations resume when the market turns up; a maintenance trade keeps the daily minimum.</div>';
 
-// ---- chart ----
+// ---- chart (re-rendered per time tab) ----
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const fmt=s=>{if(!s)return'';const d=s.split('-');return MON[(+d[1]||1)-1]+' '+(+d[2]||'');};
-(function(){const c=D.chart,N=c.equity.length;if(N<2)return;
+const fmt=s=>{if(!s)return'';const d=(''+s).slice(0,10).split('-');return MON[(+d[1]||1)-1]+' '+(+d[2]||'');};
+function drawChart(curve){
+ const N=curve.length;if(N<2)return;
+ const eqA=curve.map(p=>p[1]),dts=curve.map(p=>p[0]);
  const W=900,H=290,L=14,R=54,T=18,B=28;
- const hasB=c.benchmark&&c.benchmark.length;const all=c.equity.concat(hasB?c.benchmark:[]);
- let mn=Math.min(...all),mx=Math.max(...all);const pad=(mx-mn)*.12||1;mn-=pad;mx+=pad;
+ let mn=Math.min(...eqA),mx=Math.max(...eqA);const pad=(mx-mn)*.12||1;mn-=pad;mx+=pad;
  const X=i=>L+i*(W-L-R)/(N-1),Y=v=>T+(1-(v-mn)/(mx-mn))*(H-T-B);
- const up=c.equity[N-1]>=c.equity[0],col=up?'#34d399':'#fb7185';
+ const up=eqA[N-1]>=eqA[0],col=up?'#34d399':'#fb7185';
  function sm(pts){let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
   for(let i=0;i<pts.length-1;i++){const a=pts[i-1]||pts[i],b=pts[i],e=pts[i+1],f=pts[i+2]||e;
   d+=`C${(b[0]+(e[0]-a[0])/6).toFixed(1)} ${(b[1]+(e[1]-a[1])/6).toFixed(1)},${(e[0]-(f[0]-b[0])/6).toFixed(1)} ${(e[1]-(f[1]-b[1])/6).toFixed(1)},${e[0].toFixed(1)} ${e[1].toFixed(1)}`;}return d;}
- const eP=c.equity.map((v,i)=>[X(i),Y(v)]),eD=sm(eP);
- const ydec=(mx-mn)<2?3:(mx-mn)<20?2:0;
+ const eD=sm(eqA.map((v,i)=>[X(i),Y(v)]));
+ const ydec=(mx-mn)<0.5?4:(mx-mn)<2?3:(mx-mn)<20?2:0;
  let ticks='';for(let k=0;k<=3;k++){const v=mn+(mx-mn)*k/3,y=Y(v);
-  ticks+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.045)"/>
-  <text x="${W-R+8}" y="${(y+3).toFixed(1)}" fill="var(--mut2)" font-size="10">$${v.toFixed(ydec)}</text>`;}
- const base=Y(c.equity[0]);
- $('clab').textContent=c.label;$('cmeta').textContent=N+' points';
- $('lg').innerHTML=`<span><i style="background:${col}"></i>Agent</span>`+(hasB?`<span><i style="background:var(--r)"></i>Market (buy&amp;hold)</span>`:'')+`<span><i style="background:var(--mut2)"></i>start</span>`;
- $('cw').insertAdjacentHTML('afterbegin',`<svg id="svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+  ticks+=`<line x1="${L}" y1="${y.toFixed(1)}" x2="${W-R}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,.045)"/><text x="${W-R+8}" y="${(y+3).toFixed(1)}" fill="var(--mut2)" font-size="10">$${v.toFixed(ydec)}</text>`;}
+ const base=Y(eqA[0]);
+ $('clab').textContent=D.chart.label;$('cmeta').textContent=N+' points';
+ $('lg').innerHTML=`<span><i style="background:${col}"></i>Agent</span><span><i style="background:var(--mut2)"></i>start</span>`;
+ const cw=$('cw');cw.querySelectorAll('svg').forEach(s=>s.remove());
+ cw.insertAdjacentHTML('afterbegin',`<svg id="svg" viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
   <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".26"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient>
   <filter id="gl"><feGaussianBlur stdDeviation="2.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
   ${ticks}
   <line x1="${L}" y1="${base.toFixed(1)}" x2="${W-R}" y2="${base.toFixed(1)}" stroke="var(--mut2)" stroke-width="1" stroke-dasharray="2 4" opacity=".6"/>
   <path d="${eD} L${X(N-1).toFixed(1)} ${H-B} L${L} ${H-B} Z" fill="url(#ag)"/>
-  ${hasB?`<path d="${sm(c.benchmark.map((v,i)=>[X(i),Y(v)]))}" fill="none" stroke="var(--r)" stroke-width="1.6" stroke-dasharray="5 5" opacity=".5"/>`:''}
-  <path d="${eD}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" filter="url(#gl)"
-    pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;animation:dr 1.5s ease forwards"/>
+  <path d="${eD}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" filter="url(#gl)" pathLength="1" style="stroke-dasharray:1;stroke-dashoffset:1;animation:dr 1.2s ease forwards"/>
   <style>@keyframes dr{to{stroke-dashoffset:0}}</style>
   <line id="cx" x1="0" y1="${T}" x2="0" y2="${H-B}" stroke="rgba(255,255,255,.26)" stroke-width="1" opacity="0"/>
   <circle id="cd" r="4" fill="${col}" stroke="#070b14" stroke-width="2" opacity="0"/>
-  <text x="${L}" y="${H-8}" fill="var(--mut2)" font-size="10">${fmt(c.dates[0])}</text>
-  <text x="${(L+(W-R))/2}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="middle">${fmt(c.dates[Math.floor(N/2)])}</text>
-  <text x="${W-R}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="end">${fmt(c.dates[c.dates.length-1])}</text></svg>`);
+  <text x="${L}" y="${H-8}" fill="var(--mut2)" font-size="10">${fmt(dts[0])}</text>
+  <text x="${(L+(W-R))/2}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="middle">${fmt(dts[Math.floor(N/2)])}</text>
+  <text x="${W-R}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="end">${fmt(dts[N-1])}</text></svg>`);
  const svg=$('svg'),tip=$('tip'),cx=$('cx'),cd=$('cd');
  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();let i=Math.round(((e.clientX-r.left)/r.width*W-L)/((W-L-R)/(N-1)));
-  i=Math.max(0,Math.min(N-1,i));const x=X(i),y=Y(c.equity[i]);
+  i=Math.max(0,Math.min(N-1,i));const x=X(i),y=Y(eqA[i]);
   cx.setAttribute('x1',x);cx.setAttribute('x2',x);cx.setAttribute('opacity','1');cd.setAttribute('cx',x);cd.setAttribute('cy',y);cd.setAttribute('opacity','1');
   tip.style.opacity=1;tip.style.left=(x/W*100)+'%';tip.style.top=(y/H*100)+'%';
-  tip.innerHTML=`<b>$${c.equity[i].toFixed(2)}</b> · ${fmt(c.dates[i])}`;});
+  tip.innerHTML=`<b>$${eqA[i].toFixed(2)}</b> · ${fmt(dts[i])}`;});
  svg.addEventListener('mouseleave',()=>{tip.style.opacity=0;cx.setAttribute('opacity','0');cd.setAttribute('opacity','0');});
-})();
+}
 </script></body></html>"""
 
 

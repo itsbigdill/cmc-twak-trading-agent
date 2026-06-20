@@ -107,8 +107,11 @@ def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price,
                               size_usd=size_usd, price=price, state=state, log=log, now=now)
         # realized P&L booked by this trade (closes/sells); ~0 for opens
         realized = round(state.realized_pnl - before, 4)
+        # fill price: exact entry (avg_price) for a buy; the mark at exit for a close
+        pos = state.positions.get(token)
+        fill_price = round(pos.avg_price if (action == "buy" and pos) else (price or 0.0), 8)
         log.event("fill", token=token, action=action, size_usd=size_usd,
-                  tx_hash=tx, reason=reason, realized=realized)
+                  tx_hash=tx, reason=reason, realized=realized, fill_price=fill_price)
     except Exception as e:
         log.event("exec_error", token=token, action=action, error=str(e))
     finally:
