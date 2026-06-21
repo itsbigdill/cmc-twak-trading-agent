@@ -43,7 +43,9 @@ def rpc(method, params):
 
 
 def rpc_batch(calls):
-    """Current-state reads via the FREE public RPC. calls = [(method, params), ...]."""
+    """Current-state reads. Prefer the archive key (free tier, handles the volume);
+    fall back to the free public RPC (rate-limits at scale, so throttled)."""
+    url = RPC or FREE_RPC
     out = []
     for i in range(0, len(calls), 100):
         chunk = calls[i:i + 100]
@@ -51,7 +53,7 @@ def rpc_batch(calls):
                    for j, (m, p) in enumerate(chunk)]
         for attempt in range(3):
             try:
-                resp = _post(payload, FREE_RPC)
+                resp = _post(payload, url)
                 by_id = {r["id"]: r.get("result") for r in resp}
                 out += [by_id.get(j) for j in range(len(chunk))]
                 break
