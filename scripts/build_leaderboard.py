@@ -8,8 +8,9 @@ src = sys.argv[1] if len(sys.argv) > 1 else "dashboard/leaderboard.json"
 out = sys.argv[2] if len(sys.argv) > 2 else "leaderboard-site/public/index.html"
 D = json.load(open(src))
 D["built_ts"] = int(time.time())
-OURS = "0x32a84f2cf8d55a8ec5414d7dc42b0d873a98ab19"
-D["ours"] = OURS
+# public, neutral leaderboard: never reveal which agent is ours
+for r in D.get("rows", []):
+    r.pop("ours", None)
 
 TEMPLATE = r"""<!doctype html><html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -62,7 +63,6 @@ font:700 12px/1 ui-monospace,monospace;letter-spacing:.18em;text-transform:upper
   <div class="sub" id="sub"></div>
 </div>
 <div id="banner"></div>
-<div id="me"></div>
 <div class="pod" id="pod"></div>
 <div class="card"><div class="ph"><span>Rank</span><span>Portfolio · PnL</span></div><div id="rows"></div></div>
 <div class="foot">
@@ -80,11 +80,6 @@ const ret=r=>r==null?'<span class="zero">—</span>':`<span class="${r>0?'pos':r
 const rows=D.rows||[];
 $('sub').textContent=`${D.n} autonomous agents · updated ${new Date(D.built_ts*1000).toUTCString().replace('GMT','UTC')}`;
 if(!D.has_baseline){$('banner').className='banner';$('banner').textContent='⏳ Pre-competition — showing live wallet funding. Return-ranking begins at go-live, Jun 22 00:00 UTC.';}
-// my position
-const mine=rows.find(r=>r.ours);
-if(mine){$('me').className='me';$('me').innerHTML=
-  `<div class="rk">#${mine.rank}</div><div><div class="lab">Our agent · CTA</div><div style="font:600 13px/1 ui-monospace,monospace">${short(D.ours)}</div></div>
-   <div class="val"><b>${fmt(mine.value)}</b><div style="margin-top:5px">${ret(mine.ret_pct)}</div></div>`;}
 // podium top3
 const md=['🥇','🥈','🥉'];
 $('pod').innerHTML=rows.slice(0,3).map((r,i)=>
@@ -92,9 +87,9 @@ $('pod').innerHTML=rows.slice(0,3).map((r,i)=>
    <div class="v">${fmt(r.value)}</div><div class="rt">${ret(r.ret_pct)}</div></div>`).join('');
 // full table
 $('rows').innerHTML=rows.map(r=>
-  `<div class="row ${r.ours?'mine':''}"><div class="n">${r.rank}</div>
+  `<div class="row"><div class="n">${r.rank}</div>
    <div class="dot" style="background:${dot(r.agent)}"></div>
-   <div class="ad">${short(r.agent)}${r.ours?'<span class="you">YOU</span>':''}</div>
+   <div class="ad">${short(r.agent)}</div>
    <div class="vv">${fmt(r.value)}</div><div class="rr">${ret(r.ret_pct)}</div></div>`).join('');
 </script></body></html>"""
 
