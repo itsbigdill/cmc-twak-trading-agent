@@ -92,17 +92,36 @@ def enumerate_participants(start=104900000, step=40000):
     return uniq
 
 
+STABLES = {"USDT", "USDC", "DAI", "TUSD", "FDUSD", "USD1", "USDe", "FRAX", "FRXUSD",
+           "USDD", "USDF", "lisUSD", "DUSD", "XUSD", "BILL", "USDf"}
+
+
 def load_tokens():
-    cfg = __import__("yaml").safe_load(open(os.path.join(ROOT, "config.yaml")))
-    tc = dict(cfg["twak"]["token_contracts"])
-    tc["USDT"] = USDT
-    # prices from the dashboard market cache (+ USDT pegged to 1)
-    try:
-        prices = json.load(open(os.path.join(ROOT, "dashboard", "_market_cache.json"))).get("prices", {})
+    """Broad set (125 resolved eligible tokens) for accurate valuation: address +
+    decimals from bsc_contracts.json. Prices: fresh market-cache where we have it,
+    else the resolved file's priceUsd; stablecoins pinned to 1."""
+    bc = os.path.join(ROOT, "config", "bsc_contracts.json")
+    tokens, decimals, prices = {}, {}, {}
+    if os.path.exists(bc):
+        d = json.load(open(bc))
+        for s, v in d.items():
+            if v.get("address"):
+                tokens[s] = v["address"]
+                decimals[s] = v.get("decimals", 18)
+                prices[s] = float(v.get("priceUsd", 0) or 0)
+    else:
+        cfg = __import__("yaml").safe_load(open(os.path.join(ROOT, "config.yaml")))
+        tokens = dict(cfg["twak"]["token_contracts"])
+    tokens.setdefault("USDT", USDT)
+    try:                                            # overlay fresh prices we already fetch
+        fresh = json.load(open(os.path.join(ROOT, "dashboard", "_market_cache.json"))).get("prices", {})
+        prices.update({k: v for k, v in fresh.items() if v})
     except Exception:
-        prices = {}
-    prices["USDT"] = 1.0
-    return tc, prices
+        pass
+    for s in tokens:
+        if s in STABLES:
+            prices[s] = 1.0
+    return tokens, prices, decimals
 
 
 def token_decimals(tokens):
@@ -174,8 +193,7 @@ def main():
         agents = enumerate_participants()
     else:
         agents = json.load(open(PART_F))
-    tokens, prices = load_tokens()
-    decimals = token_decimals(tokens)
+    tokens, prices, decimals = load_tokens()
     vals = value_agents(agents, tokens, prices, decimals)
 
     baseline = {}
