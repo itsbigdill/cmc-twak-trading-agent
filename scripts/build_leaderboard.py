@@ -78,19 +78,31 @@ const dot=a=>{let h=0;for(let i=2;i<10;i++)h=(h*31+a.charCodeAt(i))>>>0;return `
 const fmt=v=>"$"+(v>=1000?v.toLocaleString(undefined,{maximumFractionDigits:0}):v.toFixed(2));
 const ret=r=>r==null?'<span class="zero">—</span>':`<span class="${r>0?'pos':r<0?'neg':'zero'}">${r>0?'+':''}${r.toFixed(2)}%</span>`;
 const rows=D.rows||[];
-$('sub').textContent=`${D.n} autonomous agents · updated ${new Date(D.built_ts*1000).toUTCString().replace('GMT','UTC')}`;
-if(!D.has_baseline){$('banner').className='banner';$('banner').textContent='⏳ Pre-competition — showing live wallet funding. Return-ranking begins at go-live, Jun 22 00:00 UTC.';}
-// podium top3
-const md=['🥇','🥈','🥉'];
-$('pod').innerHTML=rows.slice(0,3).map((r,i)=>
-  `<div class="p ${i==0?'first':''}"><div class="md">${md[i]}</div><div class="a">${short(r.agent)}</div>
-   <div class="v">${fmt(r.value)}</div><div class="rt">${ret(r.ret_pct)}</div></div>`).join('');
-// full table
-$('rows').innerHTML=rows.map(r=>
-  `<div class="row"><div class="n">${r.rank}</div>
-   <div class="dot" style="background:${dot(r.agent)}"></div>
-   <div class="ad">${short(r.agent)}</div>
-   <div class="vv">${fmt(r.value)}</div><div class="rr">${ret(r.ret_pct)}</div></div>`).join('');
+const upd=new Date(D.built_ts*1000).toUTCString().replace('GMT','UTC');
+if(!D.has_baseline){
+  // PRE-COMPETITION: ranking is by total return, which only starts at go-live.
+  // Show a neutral roster of registered agents — no podium, no standings, no $.
+  $('sub').textContent=`updated ${upd}`;
+  $('banner').className='banner';
+  $('banner').innerHTML='⏳ <b>Competition starts Jun 22, 00:00 UTC.</b> Live ranking by total return begins then.';
+  $('pod').style.display='none';
+  document.querySelector('.ph').innerHTML='<span>Registered agents</span><span>'+D.n+' total</span>';
+  $('rows').innerHTML=rows.slice().sort((a,b)=>a.agent<b.agent?-1:1).map(r=>
+    `<div class="row"><div class="dot" style="background:${dot(r.agent)}"></div>
+     <div class="ad">${short(r.agent)}</div></div>`).join('');
+}else{
+  // LIVE: rank by total return (%).
+  $('sub').textContent=`${D.n} autonomous agents · ranked by total return · updated ${upd}`;
+  const md=['🥇','🥈','🥉'];
+  $('pod').innerHTML=rows.slice(0,3).map((r,i)=>
+    `<div class="p ${i==0?'first':''}"><div class="md">${md[i]}</div><div class="a">${short(r.agent)}</div>
+     <div class="v">${fmt(r.value)}</div><div class="rt">${ret(r.ret_pct)}</div></div>`).join('');
+  $('rows').innerHTML=rows.map(r=>
+    `<div class="row"><div class="n">${r.rank}</div>
+     <div class="dot" style="background:${dot(r.agent)}"></div>
+     <div class="ad">${short(r.agent)}</div>
+     <div class="vv">${fmt(r.value)}</div><div class="rr">${ret(r.ret_pct)}</div></div>`).join('');
+}
 </script></body></html>"""
 
 html = TEMPLATE.replace("/*DATA*/", json.dumps(D))
