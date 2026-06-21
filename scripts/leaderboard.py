@@ -121,25 +121,29 @@ def token_decimals(tokens):
 
 def multicall(pairs):
     """pairs = [(target, calldata_hex), ...] -> [returndata_hex|None]. One Multicall3
-    eth_call returns hundreds of results, so the whole valuation is a few requests
-    (under any free-RPC rate limit). Uses the free RPC by default."""
-    url = RPC or FREE_RPC
+    eth_call returns hundreds of results, so the whole 55-agent valuation is ~5
+    requests. Runs on the FREE public RPC (keeps NodeReal CUs untouched); the archive
+    key is only a fallback if the free RPC chokes."""
+    urls = [FREE_RPC] + ([RPC] if RPC else [])
     out = []
     for i in range(0, len(pairs), 600):
         chunk = pairs[i:i + 600]
         tuples = [(t, True, bytes.fromhex(cd[2:])) for t, cd in chunk]
         data = SEL_AGG3 + abi_encode(["(address,bool,bytes)[]"], [tuples]).hex()
         got = None
-        for _ in range(3):
-            try:
-                r = _post({"jsonrpc": "2.0", "id": 1, "method": "eth_call",
-                           "params": [{"to": MULTICALL3, "data": data}, "latest"]}, url).get("result")
-                if r and r != "0x":
-                    dec = abi_decode(["(bool,bytes)[]"], bytes.fromhex(r[2:]))[0]
-                    got = ["0x" + rd.hex() if ok else None for ok, rd in dec]
-                    break
-            except Exception:
-                time.sleep(1.5)
+        for url in urls:
+            for _ in range(2):
+                try:
+                    r = _post({"jsonrpc": "2.0", "id": 1, "method": "eth_call",
+                               "params": [{"to": MULTICALL3, "data": data}, "latest"]}, url).get("result")
+                    if r and r != "0x":
+                        dec = abi_decode(["(bool,bytes)[]"], bytes.fromhex(r[2:]))[0]
+                        got = ["0x" + rd.hex() if ok else None for ok, rd in dec]
+                        break
+                except Exception:
+                    time.sleep(1.5)
+            if got:
+                break
         out += got if got else [None] * len(chunk)
     return out
 
