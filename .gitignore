@@ -13,3 +13,6 @@ venv/
 .DS_Store
 *.tmp
 dashboard/index.html
+.vercel
+leaderboard-site/.wrangler/
+leaderboard-site/node_modules/
