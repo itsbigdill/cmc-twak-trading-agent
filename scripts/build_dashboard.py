@@ -80,12 +80,11 @@ def _wallet(cfg):
         holdings.append({"sym": "USDT", "amount": round(float(u["available"]), 2), "usd": round(usd, 2),
                          "logo": _logo("USDT", USDT)})
         total += usd
-    b = _twak(["wallet", "balance", "--chain", "bsc"])
-    if b and "available" in b:
-        usd = float(b.get("totalUsd", 0) or 0)
-        holdings.append({"sym": "BNB", "amount": round(float(b["available"]), 5), "usd": round(usd, 2),
-                         "logo": _logo("BNB", None)})
-        total += usd
+    gas = {"amount": 0.0, "usd": 0.0}
+    b = _twak(["balance", "--address", addr, "--chain", "bsc"])   # native BNB (reliable; `wallet balance` lags)
+    if b and b.get("available") is not None:         # native BNB is a GAS RESERVE, NOT trading capital:
+        gas = {"amount": round(float(b["available"]), 5),    # excluded from trading balance, PnL & leaderboard
+               "usd": round(float(b.get("totalUsd", 0) or 0), 2), "logo": _logo("BNB", None)}
     try:
         st = json.load(open(os.path.join(ROOT, cfg["paths"]["state_file"])))
         for sym in st.get("positions", {}):
@@ -98,7 +97,8 @@ def _wallet(cfg):
                 total += usd
     except Exception:
         pass
-    return {"total_usd": round(total, 2), "holdings": holdings}
+    return {"total_usd": round(total, 2), "trading_usd": round(total, 2),
+            "gas": gas, "holdings": holdings}
 
 
 def _market(cfg):
@@ -233,7 +233,8 @@ def build_data(with_wallet=True, with_market=True):
                               "value": round(qty * now, 2),
                               "logo": _logo(tok, cfg["twak"]["token_contracts"].get(tok))})
     kill = cfg["risk"]["drawdown_kill_pct"]
-    posture = "Aggressive" if kill >= 0.24 else "Balanced" if kill >= 0.18 else "Defensive"
+    posture = (cfg.get("decision", {}).get("strategy_label") or
+               ("Aggressive" if kill >= 0.24 else "Balanced" if kill >= 0.18 else "Defensive"))
     prov = _llm_provider()
     return {
         "address": cfg["twak"]["agent_address"], "agent_id": cfg.get("bnb_sdk", {}).get("agent_id", ""),
@@ -259,7 +260,7 @@ def build_data(with_wallet=True, with_market=True):
 
 
 def _activity(rows, cfg, st):
-    """Full event log, enriched: buys show entry+size; closes show entry->exit + P&L% + value
+    """Full event log, enriched: buys show entry+size; exits show entry->exit + P&L% + value
     (round-trips reconstructed); x402 and blocks kept."""
     tc = cfg["twak"]["token_contracts"]
     held = {t: p.get("avg_price") for t, p in (st.get("positions") or {}).items()}
@@ -273,17 +274,25 @@ def _activity(rows, cfg, st):
                 items.append({"kind": "fill", "action": "buy", "token": tok,
                               "entry": px or held.get(tok), "exit": None, "pnl": None,
                               "value": round(size, 2), "logo": _logo(tok, tc.get(tok)), "ts": ts})
-            elif act in ("close", "sell"):
+            elif act in ("close", "sell", "trim"):
                 ls = lots.get(tok, []); cost = sum(s for _, s in ls)
                 entry = (sum(p * s for p, s in ls) / cost) if (ls and all(p for p, _ in ls) and cost) else None
-                lots[tok] = []; realized = r.get("realized")
-                pnl = (realized / cost * 100) if (realized is not None and cost) else None
+                realized = r.get("realized")
+                if act == "trim":
+                    proceeds = float(size or 0)
+                    sold_cost = proceeds - float(realized or 0)
+                    pnl = (float(realized) / sold_cost * 100) if realized is not None and sold_cost > 0 else None
+                    value = proceeds
+                else:
+                    lots[tok] = []
+                    pnl = (realized / cost * 100) if (realized is not None and cost) else None
+                    value = cost
                 # derive exit from entry + realized P&L so the price move always matches the P&L
                 # (exact for real fills; keeps reconstructed entries internally consistent)
                 exitpx = (entry * (1 + pnl / 100)) if (entry and pnl is not None) else px
-                items.append({"kind": "fill", "action": "close", "token": tok,
+                items.append({"kind": "fill", "action": act, "token": tok,
                               "entry": entry, "exit": exitpx, "pnl": round(pnl, 2) if pnl is not None else None,
-                              "realized": realized, "value": round(cost, 2) if cost else None,
+                              "realized": realized, "value": round(value, 2) if value else None,
                               "logo": _logo(tok, tc.get(tok)), "ts": ts})
         elif k == "x402":
             items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts})
@@ -492,7 +501,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 </div>
 
 <div class="card">
-  <div class="lab">Portfolio</div>
+  <div class="lab">Trading balance</div>
   <div class="prow">
     <div><div class="big num" id="pv">—</div><div class="sub" id="pvsub"></div></div>
     <div id="holds" class="holds"></div>
@@ -572,7 +581,8 @@ $('chips').innerHTML=[`<span class="chip on">🟢 registered</span>`,
 const pv=D.portfolio.total_usd;
 if(pv!=null){const t0=performance.now();(function a(n){let p=Math.min((n-t0)/750,1);p=1-Math.pow(1-p,3);
  $('pv').textContent='$'+(pv*p).toFixed(2);if(p<1)requestAnimationFrame(a);})(t0);}else $('pv').textContent='—';
-$('pvsub').textContent=D.portfolio.holdings.length?'across '+D.portfolio.holdings.length+' assets':'fund wallet to begin';
+const _g=D.portfolio.gas||{amount:0,usd:0};
+$('pvsub').innerHTML=_g.usd?`+ <img src="${_g.logo||''}" onerror="this.outerHTML='◆'" style="width:14px;height:14px;vertical-align:-2px;border-radius:50%"/> $${_g.usd.toFixed(2)}`:(D.portfolio.holdings.length?'':'fund wallet to begin');
 $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <img class="ico" src="${h.logo}" onerror="this.outerHTML='<i class=dotk></i>'"/>${h.sym}
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
@@ -642,11 +652,11 @@ if(D.positions&&D.positions.length){
    +`<span class="pov">$${p.value.toFixed(2)}</span></div>`;}).join('');
 }else $('poscard').style.display='none';
 
-// recent activity — full log, enriched: buys = entry+size; closes = entry→exit + P&L% + value
+// recent activity — full log, enriched: buys = entry+size; exits = entry→exit + P&L% + value
 $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  const t=a.ts||'';
  if(a.kind==='fill'){
-  const buy=a.action==='buy', col=buy?'var(--g)':'var(--b)', tag=buy?'BUY':'CLOSE';
+  const buy=a.action==='buy', trim=a.action==='trim', col=buy?'var(--g)':'var(--b)', tag=buy?'BUY':(trim?'TRIM':'CLOSE');
   const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="fbk(this,'${a.token}')"/>`:`<span class="ico sm lt">${(a.token||'').slice(0,3)}</span>`;
   const prices=buy?(a.entry?fmtpx(a.entry):'entered'):((a.entry&&a.exit)?(fmtpx(a.entry)+' → '+fmtpx(a.exit)):'');
   const pnl=(!buy&&a.pnl!=null)?`<span class="apnl" style="color:${a.pnl>=0?'var(--g)':'var(--r)'}">${a.pnl>=0?'+':''}${a.pnl}%</span>`:'<span class="apnl"></span>';
