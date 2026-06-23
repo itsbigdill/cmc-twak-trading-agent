@@ -36,6 +36,7 @@ background:
  border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.06)}
 .hero{margin:0 0 22px}
 .herohead{display:flex;align-items:flex-end;justify-content:space-between;gap:18px}
+.heroright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .mark{font:800 12px/1 "Inter";letter-spacing:.16em;text-transform:uppercase;color:var(--gold2)}
 .ed{margin-top:8px;font:700 9.5px/1 var(--mono);letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
 .h1{font:850 36px/1.02 "Inter";letter-spacing:-1.35px;margin:12px 0 7px;
@@ -126,14 +127,14 @@ background:
 .foot .fline{margin:7px 0}.foot .by{margin-top:12px}
 .foot a{color:var(--gold2);text-decoration:none}.foot a:hover{text-decoration:underline}
 .by{margin-top:6px;font-size:12.5px}
-.cto-badge{position:fixed;top:16px;right:18px;z-index:20;display:inline-flex;align-items:center;gap:8px;padding:7px 10px 7px 7px;
+.cto-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 8px 5px 5px;
  border:1px solid rgba(188,255,40,.28);border-radius:999px;background:rgba(10,16,38,.72);backdrop-filter:blur(16px) saturate(150%);
  -webkit-backdrop-filter:blur(16px) saturate(150%);box-shadow:0 10px 30px rgba(0,0,0,.32),inset 0 1px 0 rgba(255,255,255,.08);
- color:#f3ffd0;text-decoration:none;font:800 10px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;transition:.16s}
+ color:#f3ffd0;text-decoration:none;font:800 8.5px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;transition:.16s}
 .cto-badge:hover{transform:translateY(-1px);border-color:rgba(188,255,40,.62);box-shadow:0 14px 38px rgba(188,255,40,.11),0 10px 30px rgba(0,0,0,.36)}
-.cto-badge img{width:25px;height:25px;border-radius:50%;object-fit:cover;background:#0b1026;box-shadow:0 0 0 1px rgba(255,255,255,.14)}
+.cto-badge img{width:20px;height:20px;border-radius:50%;object-fit:cover;background:#0b1026;box-shadow:0 0 0 1px rgba(255,255,255,.14)}
 .cto-badge span{color:var(--mut);font-weight:700}.cto-badge b{color:#dfff38}
-@media(max-width:680px){body{padding:22px 10px 52px}.herohead{display:block}.cd{margin-top:14px}.mark{font-size:11px}.h1{font-size:30px}.stats{gap:7px}.st{padding:8px 10px}.bad{grid-template-columns:1fr}
+@media(max-width:680px){body{padding:22px 10px 52px}.herohead{display:block}.heroright{align-items:flex-start;margin-top:14px}.mark{font-size:11px}.h1{font-size:30px}.stats{gap:7px}.st{padding:8px 10px}.bad{grid-template-columns:1fr}
  .tools{flex-direction:column;align-items:stretch}.selwrap,.sel{width:100%}#minv{width:100%}.thead{display:none}
  .tbl{border-radius:18px}.row{grid-template-columns:28px minmax(0,1fr) auto;grid-template-areas:"rank agent value" "rank pnl pnl" "rank trades dd";
   gap:8px 10px;padding:13px 12px;align-items:center}.row .n{grid-area:rank;align-self:start;padding-top:3px}.row .ag{grid-area:agent}
@@ -143,9 +144,7 @@ background:
  .ddcol::before{content:"DD";color:var(--mut);font:700 9px/1 var(--mono);letter-spacing:.1em}.dqv{text-align:left;width:auto}.det.open{max-height:260px}
  .tradebox{justify-content:flex-start}.days{font-size:9.5px}
  .dethold{padding:0 12px 13px 50px}.chip{font-size:10px;padding:5px 9px}}
-</style></head><body><a class="cto-badge" href="https://cto.monster" target="_blank" rel="noopener" aria-label="Made by CTO Monster">
-  <img src="monster-logo.webp" alt="CTO Monster logo"/><span>made by</span><b>CTO Monster</b>
-</a><div class="wrap">
+</style></head><body><div class="wrap">
 <div class="hero">
   <div class="herohead">
     <div>
@@ -154,7 +153,12 @@ background:
       <div class="h1">Track 1 · <b>Live Leaderboard</b></div>
       <div class="spon">CoinMarketCap × Trust Wallet × BNB Chain · $24,000 · top 5 win</div>
     </div>
-    <div class="cd" id="cd"></div>
+    <div class="heroright">
+      <a class="cto-badge" href="https://cto.monster" target="_blank" rel="noopener" aria-label="Made by CTO Monster">
+        <img src="monster-logo.webp" alt="CTO Monster logo"/><span>made by</span><b>CTO Monster</b>
+      </a>
+      <div class="cd" id="cd"></div>
+    </div>
   </div>
 </div>
 <div class="stats" id="stats"></div>
