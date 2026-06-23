@@ -27,9 +27,9 @@ risk:
   # Position sizing — tuned AGGRESSIVE for a rank-by-return contest with a ~30% DQ:
   # the optimal play is to use the drawdown budget, not hoard it. Concentrate in
   # the strongest names while healthy; tournament sizing de-risks near the kill line.
-  max_position_pct: 0.24        # max single position as frac of cash on entry
-  max_concentration_pct: 0.45   # max single asset as frac of total equity
-  min_confidence: 0.52          # LLM confidence below this -> hold
+  max_position_pct: 0.55        # sniper catch-up: one high-conviction name, never all-in
+  max_concentration_pct: 0.60   # allows the single 55% recovery shot, blocks all-in drift
+  min_confidence: 0.56          # LLM confidence below this -> hold
 
   # Drawdown — layered defense (DQ is on peak-to-now max drawdown, ~30%).
   # 1) per-position stop: cut individual losers fast -> caps any one trade's
@@ -38,23 +38,23 @@ risk:
   #    (resets daily, so recovery is possible; we don't freeze the whole window).
   # 3) kill switch: peak-to-now drawdown hits the kill line -> close ALL + halt
   #    for the rest of the window. Final guard, set well under the DQ line.
-  per_position_stop_pct: 0.08   # close a position down >8% from entry. Wider than the old
+  per_position_stop_pct: 0.06   # executable-value stop; avoids CMC/DEX mark illusions
                                 # 4% (which whipsawed winners back to cash in chop), tighter
                                 # than 10% (which bled too much in sustained downtrends).
   daily_loss_stop_pct: 0.10     # pause new entries for the rest of the UTC day
   drawdown_kill_pct: 0.20       # peak-to-now; close all + pause for the DAY (re-arms next
                                 # UTC day, NOT a permanent halt). 10pt buffer under ~30% DQ.
   drawdown_dq_reference_pct: 0.30  # the judges' line, for logging headroom only
+  leaderboard_entry_cutoff_pct: 0.275 # no new entries if judge DD leaves <2.5pt buffer
+  leaderboard_dq_buffer_pct: 0.025    # size entries against the judge DQ line minus buffer
 
   # Activity corridor (per official FAQ): min 1 trade/day, 7 over the week.
   # Cap the top end to avoid simulated-tx-cost bleed.
   min_trades_per_day: 1
   min_trades_per_week: 7
   force_daily_trade: true       # if a UTC day has 0 trades, make 1 maintenance trade
-  max_trades_per_day: 24        # backstop, not the primary throttle. Churn is now held by the
-                                # re-entry cooldown + min_seconds + entry_threshold, so the daily
-                                # cap is just headroom for legitimate rebalancing (raised 12 -> 24).
-  min_seconds_between_trades: 1800  # LIVE pacing: >=30 min between trades so the day's
+  max_trades_per_day: 4         # NEW ENTRIES only; sniper mode gets one comeback shot
+  min_seconds_between_trades: 900   # one 15-minute loop; other anti-churn gates still apply
                                     # budget isn't burned in the first few hours. Closes are
                                     # EXEMPT (risk_gate lets exits through), so this only paces
                                     # new entries; rotation still exits freely. (Backtest forces
@@ -73,6 +73,18 @@ risk:
   # Edge now = regime-aware capital preservation + selection + not overtrading.
   perps_enabled: false
 
+# --- Live execution hardening ---------------------------------------------
+execution:
+  max_price_impact_pct: 1.0       # independent of slippage; reject an already-bad quote
+  max_round_trip_loss_pct: 3.0    # mandatory USDT->token->USDT recovery check
+  min_swap_quote: 0.25            # do not waste gas on sub-$0.25 routes
+  balance_buffer_fraction: 0.00001  # leave 0.001% dust; prevents balance races/round-up
+  balance_reconcile_attempts: 5   # confirmed tx -> poll exact token/USDT deltas
+  balance_reconcile_interval_seconds: 2
+  min_gas_bnb: 0.003              # halt execution while exits cannot be funded safely
+  retry_base_seconds: 60
+  retry_max_seconds: 900
+
 # --- Signal engine (F2) — deterministic, judge-reproducible ---------------
 signal:
   # Component weights (sum ~1.0). Few magic constants on purpose (anti-overfit).
@@ -84,14 +96,15 @@ signal:
     news: 0.10
     funding: 0.10        # CMC derivatives funding rate, contrarian (0 in price-only backtest)
     dominance: 0.05      # CMC BTC dominance regime tilt: BTC dominating -> risk-off for alts
-    x402: 0.08           # premium market bias bought per-request via x402 (0 when not paid)
+    x402: 0.12           # paid x402 token-level boost; modest, never bypasses gates alone
+    cmc: 0.12            # CMC Pro enrichment: quotes/volume/TA/holders/token news
   funding_scale: 0.01    # funding rate that maps to a full ±1 contribution (CMC returns
                          # ~0.002 typical, ~0.005+ crowded; 0.01 keeps it a bounded tilt)
   dominance_ref: 54.0    # neutral BTC dominance; above -> alts tilted down, below -> up
   dominance_scale: 12.0  # dominance points away from ref that map to a full ±1 tilt
   rsi_oversold: 30
   rsi_overbought: 70
-  entry_threshold: 0.30         # |score| must exceed this to act (lower = participate more,
+  entry_threshold: 0.30         # LLM cannot bypass this deterministic gate
                                 # but too low churns in chop). Raised 0.25 -> 0.30 to cut
                                 # marginal-momentum entries that flip-flop at the boundary.
   chop_dampen: 0.30             # multiply score by this in chop regime
@@ -106,19 +119,55 @@ regime:
 # --- Decision policy (F3) -------------------------------------------------
 decision:
   policy: rotation          # rotation | threshold
-  rotation_top_k: 5         # hold the K strongest tokens by momentum (uptrend)
-  rotation_min_momentum: 0.05  # only rotate into positive-momentum names
-  rotation_downtrend_topk: 1       # downtrend = ride only the 1 strongest relative-strength
+  strategy_label: Sniper comeback v1
+  rotation_top_k: 1         # one best executable candidate; avoid five mediocre wounds
+  rotation_min_momentum: 0.30
+  rotation_downtrend_topk: 1
                                    # name (NOT 100% cash: a cash week scores ~0% in a rank-by-
                                    # return contest). Backtest: this BEAT pure-cash in the bear
                                    # year (-9.7% vs -12.6%). Stops + daily pause + kill cap risk.
-  rotation_downtrend_min_momentum: 0.20  # ...and only if momentum is clearly positive
+  rotation_downtrend_min_momentum: 0.38
   rotation_reentry_cooldown_hours: 4     # hysteresis: after rotating OUT of a name, wait this
                                          # many HOURS before rotating back IN. Time-based, so it is
                                          # consistent in live and backtest. Kills the buy->sell->buy
                                          # thrash on boundary names without holding a strong name out
                                          # for half a day (12h backtested slightly worse on the
                                          # short week sample; 4h is the gentler middle).
+  rotation_score_hurdle: 0.18            # challenger must beat a held name after costs/risk
+  target_gross_exposure_pct: 0.55        # catch-up mode while outside the top five
+  top5_gross_exposure_pct: 0.05          # defend rank aggressively once inside top five
+  top5_max_mark_divergence_pct: 10.0     # ignore an inflated board rank when it disagrees with exits
+  min_rebalance_usd: 1.0
+  signal_confirmation:
+    base_score: 0.36
+    immediate_score: 0.48                # very strong signals enter on one observation
+    required_ticks: 3                    # 0.36-0.48 requires three consecutive observations
+
+profit_lock:
+  enabled: true
+  activation_pct: 0.07                   # after +7%, never let a winner become a loser
+  breakeven_floor_pct: 0.025             # preserve entry cost + expected route friction
+  trailing_activation_pct: 0.14
+  trailing_gap_pct: 0.055
+  partial_take_pct: 0.12
+  partial_sell_fraction: 0.35
+  min_partial_sell_usd: 1.0
+
+universe:
+  enabled: true
+  resolved_contracts_file: config/bsc_contracts.json
+  cache_file: state/universe_cache.json
+  refresh_hours: 4
+  retain_last_good_hours: 12
+  probe_usd: 4.0
+  max_round_trip_loss_pct: 3.0
+  min_history_bars: 35
+  max_assets: 120
+  workers: 12
+
+leaderboard:
+  url: https://bnbhackleaderboard.pages.dev/
+  refresh_minutes: 30
 
 llm:
   # Provider-agnostic (agent/llm.py): auto-picks by key — GEMINI_API_KEY -> Gemini
@@ -131,6 +180,15 @@ llm:
 # --- Integrations ---------------------------------------------------------
 cmc:
   mcp_url: https://mcp.coinmarketcap.com/mcp
+  enrichment_enabled: true
+  cache_file: state/cmc_enrichment_cache.json
+  max_id_resolves_per_tick: 30       # resolve likely candidates fast; cache persists
+  enrich_top_n: 8                    # expensive TA/metrics/news only for finalists
+  quotes_ttl_seconds: 900
+  technicals_ttl_seconds: 3600
+  metrics_ttl_seconds: 21600
+  news_ttl_seconds: 7200
+  min_volume_24h_usd: 500000
   # API key from env: CMC_MCP_API_KEY  (header X-CMC-MCP-API-KEY)
   # CMC tools need numeric ids (not symbols). Verified via scripts/verify_cmc.py.
   # Extend for the full 149-token universe (resolve ids with search_cryptos).
@@ -145,10 +203,12 @@ twak:
   agent_wallet: true            # agent wallet mode = autonomous signing under rules
   chain: bsc
   agent_address: "0x32A84F2cf8D55a8eC5414D7DC42b0D873A98AB19"
+  quote_contract: "0x55d398326f99059fF775485246999027B3197955"
   competition_contract: "0x212c61b9b72c95d95bf29cf032f5e5635629aed5"  # BSC
   # If present, the broad filter-verified universe (scripts/build_universe.py)
   # overrides the inline token_contracts below at load time.
   contracts_file: config/trade_universe.json
+  deny_buy: ["ZETA"]           # entry-only quarantine; existing ZETA can always be sold
   # Trade targets = eligible (149 list) AND verified BSC contract. Resolved via
   # `twak search` (scripts/resolve_universe.py -> config/bsc_contracts.json) and
   # curated to non-ambiguous liquid majors. BTC/BTCB and BNB are NOT eligible

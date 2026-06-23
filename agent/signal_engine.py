@@ -125,9 +125,16 @@ def score_token(token: str, data: Mapping, regime: Regime, cfg: Mapping) -> Toke
         "dominance": dominance_component(
             float(data.get("btc_dominance", cfg["signal"].get("dominance_ref", 54.0))),
             cfg["signal"].get("dominance_ref", 54.0), cfg["signal"].get("dominance_scale", 12.0)),
-        "x402": _clip(float(data.get("x402_bias", 0.0))),
+        "x402": _clip(max(float(data.get("x402_bias", 0.0)),
+                          float(data.get("x402_token_score", 0.0)))),
+        # CoinMarketCap Pro enrichment: cross-check executable TWAK momentum
+        # against CMC quote momentum, volume, daily TA, holder concentration and
+        # token-specific news. 0 means unavailable/neutral, so the agent degrades
+        # safely when CMC is slow or the token has no resolved id.
+        "cmc": _clip(float(data.get("cmc_score", 0.0))),
     }
-    raw = sum(comps[k] * w[k] for k in w)
+    weight_total = sum(abs(float(v)) for v in w.values()) or 1.0
+    raw = sum(comps[k] * w[k] for k in w) / weight_total
 
     # Regime gating: dampen hard in chop (fewer, lower-conviction trades).
     if regime is Regime.CHOP:

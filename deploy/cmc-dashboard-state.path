@@ -1,0 +1,9 @@
+[Unit]
+Description=Rebuild CTA dashboard when portfolio state changes
+
+[Path]
+PathChanged=/opt/cmc-twak-agent/state/portfolio.json
+Unit=cmc-dashboard-quick.service
+
+[Install]
+WantedBy=multi-user.target

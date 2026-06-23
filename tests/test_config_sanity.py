@@ -31,3 +31,12 @@ def test_quote_asset_is_eligible(cfg):
 def test_benchmark_is_signal_only(cfg):
     # BTC/BNB drive regime but are NOT tradeable (not on the list).
     assert cfg["regime"]["benchmark"] not in cfg["twak"]["token_contracts"]
+
+
+def test_execution_guards_are_sane(cfg):
+    ex = cfg["execution"]
+    assert 0 < ex["max_price_impact_pct"] <= 2
+    assert 0 < ex["balance_buffer_fraction"] < 0.001
+    assert ex["min_gas_bnb"] > 0
+    assert cfg["twak"]["quote_contract"].lower() == \
+        "0x55d398326f99059ff775485246999027b3197955"

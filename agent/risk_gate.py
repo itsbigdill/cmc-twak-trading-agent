@@ -28,15 +28,43 @@ class RiskResult:
     headroom_to_dq_pct: float = 0.0   # how far from the judges' DQ line, for logs
 
 
-def _risk_budget_fraction(current_dd: float, hard_stop: float) -> float:
-    """1.0 when flat at peak, ->0 as drawdown approaches the hard stop.
+def _risk_budget_fraction(current_dd: float, hard_stop: float,
+                          planned_stop_loss: float) -> float:
+    """Scale only when planned stopped-out exposure no longer fits before kill.
 
-    This is the tournament-sizing multiplier. Linear is intentional: simple,
-    not overfit, and monotonic.
+    A linear peak-to-kill multiplier made a 10% historical drawdown halve every
+    future entry even when two stopped positions could not reach the 20% kill.
+    This version budgets against the actual configured loss-at-stop instead.
     """
     if hard_stop <= 0:
         return 0.0
-    return max(0.0, min(1.0, (hard_stop - current_dd) / hard_stop))
+    headroom = max(0.0, hard_stop - current_dd)
+    if planned_stop_loss <= 0:
+        return 0.0
+    return max(0.0, min(1.0, headroom / planned_stop_loss))
+
+
+def _entry_budget_from_judge_dd(effective_dd: float, cfg: dict,
+                                planned_stop_loss: float) -> tuple[float, str | None]:
+    """Scale new entries against the leaderboard DQ line, not just local marks.
+
+    The live leaderboard can see a much deeper drawdown than our executable
+    liquidation curve because it values hourly in-scope holdings from its own
+    marks.  Once that happens, opening risk sized only from local DD can
+    accidentally walk into the 30% DQ line.  We therefore keep a configurable
+    safety buffer below the judge line and shrink/block entries as that buffer
+    disappears.  Exits remain allowed earlier in evaluate().
+    """
+    r = cfg["risk"]
+    dq = float(r.get("drawdown_dq_reference_pct", 0.30))
+    cutoff = float(r.get("leaderboard_entry_cutoff_pct", dq))
+    buffer = float(r.get("leaderboard_dq_buffer_pct", 0.0))
+    if effective_dd >= cutoff:
+        return 0.0, f"leaderboard_dd_cutoff: dd={effective_dd:.3f} >= {cutoff:.3f}"
+    usable = max(0.0, dq - buffer - effective_dd)
+    if planned_stop_loss <= 0:
+        return 0.0, "leaderboard_sized_to_zero: invalid planned stop"
+    return max(0.0, min(1.0, usable / planned_stop_loss)), None
 
 
 def evaluate(
@@ -50,18 +78,22 @@ def evaluate(
     equity: float,
     cfg: dict,
     now: Optional[float] = None,
+    leaderboard_drawdown_pct: Optional[float] = None,
 ) -> RiskResult:
     r = cfg["risk"]
     now = now if now is not None else time.time()
     current_dd = state.current_drawdown(equity)
+    judge_dd = (float(leaderboard_drawdown_pct) / 100.0
+                if leaderboard_drawdown_pct is not None else None)
+    effective_dd = max(current_dd, judge_dd or 0.0)
     daily_loss = state.daily_loss(equity)
-    headroom = max(0.0, r["drawdown_dq_reference_pct"] - current_dd)
+    headroom = max(0.0, r["drawdown_dq_reference_pct"] - effective_dd)
 
     def block(reason: str) -> RiskResult:
         return RiskResult(False, reason, 0.0, round(headroom, 4))
 
     # ---- 0. Closes are (almost) always allowed: reducing risk is good -------
-    if action in ("close", "hold"):
+    if action in ("close", "trim", "hold"):
         return RiskResult(action != "hold", f"{action}_allowed", 0.0, round(headroom, 4))
 
     # ---- 1. Kill switch (peak-to-now) -> CLOSE-ONLY for the window ----------
@@ -80,8 +112,10 @@ def evaluate(
         return block(f"low_confidence: {confidence:.2f} < {r['min_confidence']}")
 
     # ---- 4. Trade-rate limits (avoid simulated-tx-cost churn) ---------------
-    if state.trades_today >= r["max_trades_per_day"]:
-        return block(f"max_trades_per_day reached: {state.trades_today}")
+    # Exits count toward the competition's activity requirement, but must never
+    # consume the entry budget and strand the strategy in cash after a rotation.
+    if state.entries_today >= r["max_trades_per_day"]:
+        return block(f"max_entries_per_day reached: {state.entries_today}")
     if now - state.last_trade_ts < r["min_seconds_between_trades"]:
         return block("min_seconds_between_trades not elapsed")
 
@@ -91,7 +125,13 @@ def evaluate(
 
     # ---- 6. Size: cap, then tournament-scale by headroom to the kill line ---
     size_pct = min(requested_size_pct, r["max_position_pct"])
-    budget = _risk_budget_fraction(current_dd, r["drawdown_kill_pct"])
+    planned_stop_loss = (float(r["per_position_stop_pct"])
+                         * float(cfg.get("decision", {}).get("target_gross_exposure_pct", 1.0)))
+    budget = _risk_budget_fraction(current_dd, r["drawdown_kill_pct"], planned_stop_loss)
+    judge_budget, judge_block = _entry_budget_from_judge_dd(effective_dd, cfg, planned_stop_loss)
+    if judge_block:
+        return block(judge_block)
+    budget = min(budget, judge_budget)
     size_usd = state.cash_usd * size_pct * budget
 
     if size_usd <= 0:
@@ -110,7 +150,9 @@ def evaluate(
 
     return RiskResult(
         approved=True,
-        reason=f"approved size=${size_usd:.2f} (budget_mult={budget:.2f}, dd={current_dd:.3f})",
+        reason=(f"approved size=${size_usd:.2f} "
+                f"(budget_mult={budget:.2f}, dd={current_dd:.3f}, "
+                f"judge_dd={effective_dd:.3f})"),
         adjusted_size_usd=round(size_usd, 2),
         headroom_to_dq_pct=round(headroom, 4),
     )

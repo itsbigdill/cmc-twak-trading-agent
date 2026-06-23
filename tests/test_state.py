@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 from agent.state import Order, PortfolioState, Position, make_order_id
 
 
@@ -48,3 +50,33 @@ def test_save_load_roundtrip(tmp_path):
     assert loaded.cash_usd == 500
     assert loaded.positions["CAKE"].qty == 10
     assert loaded.open_orders["abc"].status == "PENDING"
+
+
+def test_confirmed_fill_requires_hash_and_counts_once():
+    s = PortfolioState()
+    s.begin_order(Order(client_order_id="abc", token="CAKE", action="buy", size_usd=2))
+    with pytest.raises(ValueError):
+        s.complete_order("abc", "", 1.0)
+    assert s.trade_count_total == 0
+    s.complete_order("abc", "0xtx", 1.0)
+    s.complete_order("abc", "0xtx", 1.0)
+    assert s.trade_count_total == 1
+    assert s.trades_today == 1
+    assert s.entries_today == 1
+
+
+def test_unknown_order_blocks_token_until_reconciled():
+    s = PortfolioState()
+    s.begin_order(Order(client_order_id="abc", token="CAKE", action="buy", size_usd=2))
+    s.fail_order("abc", "timeout", unknown=True)
+    assert s.has_unresolved_order("CAKE")
+    s.reconcile_order("abc", "manual review")
+    assert not s.has_unresolved_order("CAKE")
+
+
+def test_execution_failure_backoff_is_exponential_and_clearable():
+    s = PortfolioState()
+    assert s.record_execution_failure("CAKE", 100, 60, 900) == 160
+    assert s.record_execution_failure("CAKE", 100, 60, 900) == 220
+    s.clear_execution_failure("CAKE")
+    assert "CAKE" not in s.execution_retry_after

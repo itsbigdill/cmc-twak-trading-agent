@@ -79,31 +79,75 @@ def test_tournament_sizing_shrinks_near_dq(cfg):
         token="CAKE", action="buy", requested_size_pct=0.35, confidence=0.9,
         token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
     )
-    # 5% peak-to-now drawdown, but flat on the day -> budget = (0.20-0.05)/0.20 = 0.75
-    s.day_start_equity = 950.0
+    # Deep but still sub-kill drawdown: remaining headroom is smaller than the
+    # configured stopped-out portfolio loss, so new risk must shrink.
+    s.day_start_equity = 820.0
     stressed = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.35, confidence=0.9,
-        token_risk_score=10, state=s, equity=950.0, cfg=cfg, now=10_000,
+        token_risk_score=10, state=s, equity=820.0, cfg=cfg, now=10_000,
     )
     assert stressed.adjusted_size_usd < healthy.adjusted_size_usd
     assert stressed.approved
 
 
+def test_leaderboard_drawdown_blocks_entries_near_dq(cfg):
+    s = _fresh_state()
+    res = risk_gate.evaluate(
+        token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
+        token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
+        leaderboard_drawdown_pct=27.6,
+    )
+    assert not res.approved
+    assert "leaderboard_dd_cutoff" in res.reason
+
+
+def test_leaderboard_drawdown_shrinks_before_cutoff(cfg):
+    s = _fresh_state()
+    cfg = {**cfg, "risk": {**cfg["risk"],
+                           "per_position_stop_pct": 0.10,
+                           "leaderboard_entry_cutoff_pct": 0.29,
+                           "leaderboard_dq_buffer_pct": 0.025}}
+    healthy = risk_gate.evaluate(
+        token="CAKE", action="buy", requested_size_pct=0.55, confidence=0.9,
+        token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
+        leaderboard_drawdown_pct=20.0,
+    )
+    stressed = risk_gate.evaluate(
+        token="CAKE", action="buy", requested_size_pct=0.55, confidence=0.9,
+        token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
+        leaderboard_drawdown_pct=26.0,
+    )
+    assert stressed.approved
+    assert stressed.adjusted_size_usd < healthy.adjusted_size_usd
+
+
 def test_trade_rate_limit(cfg):
     s = _fresh_state()
-    s.trades_today = cfg["risk"]["max_trades_per_day"]
+    s.entries_today = cfg["risk"]["max_trades_per_day"]
     res = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
         token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
     )
     assert not res.approved
-    assert "max_trades_per_day" in res.reason
+    assert "max_entries_per_day" in res.reason
+
+
+def test_exits_do_not_consume_entry_budget(cfg):
+    s = _fresh_state()
+    s.trades_today = 99
+    s.entries_today = 0
+    res = risk_gate.evaluate(
+        token="CAKE", action="buy", requested_size_pct=0.2, confidence=0.9,
+        token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,
+    )
+    assert res.approved
 
 
 def test_concentration_cap_shrinks(cfg):
     s = _fresh_state(cash=1000, peak=1000)
-    # already holding 400 of CAKE; cap is 45% of 1000 = 450 -> only 50 more allowed
-    s.positions["CAKE"] = Position(token="CAKE", qty=400.0, avg_price=1.0)
+    cap = cfg["risk"]["max_concentration_pct"] * 1000
+    # Hold $50 below the configured cap; the new entry must shrink to that gap.
+    s.positions["CAKE"] = Position(token="CAKE", qty=cap - 50, avg_price=1.0)
     res = risk_gate.evaluate(
         token="CAKE", action="buy", requested_size_pct=0.35, confidence=0.9,
         token_risk_score=10, state=s, equity=1000.0, cfg=cfg, now=10_000,

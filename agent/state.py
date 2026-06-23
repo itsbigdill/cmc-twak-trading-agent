@@ -28,6 +28,8 @@ class Position:
     avg_price: float = 0.0      # entry vwap in quote asset
     leverage: float = 1.0
     is_perp: bool = False
+    peak_executable_price: float = 0.0
+    profit_taken: bool = False
 
 
 @dataclass
@@ -36,10 +38,16 @@ class Order:
     token: str
     action: str                 # buy | sell | close | short
     size_usd: float
-    status: str = "PENDING"     # PENDING | FILLED | FAILED | RECONCILE
+    status: str = "PENDING"     # PENDING | SENT | FILLED | FAILED | UNKNOWN | RECONCILE
     tx_hash: Optional[str] = None
     price: Optional[float] = None
     ts: str = ""
+    error: Optional[str] = None
+    pre_token_atomic: Optional[int] = None
+    pre_quote_atomic: Optional[int] = None
+    token_decimals: Optional[int] = None
+    quote_decimals: Optional[int] = None
+    requested_atomic: Optional[int] = None
 
 
 def make_order_id(tick_id: str, token: str, action: str) -> str:
@@ -64,8 +72,13 @@ class PortfolioState:
     day: str = ""
     day_start_equity: float = 0.0
     trades_today: int = 0
+    entries_today: int = 0
     last_trade_ts: float = 0.0
     x402_bias: float = 0.0       # premium market bias from the last x402 signal (used in scoring)
+    x402_tokens: dict[str, float] = field(default_factory=dict)  # token -> paid signal score
+    execution_failures: dict[str, int] = field(default_factory=dict)
+    execution_retry_after: dict[str, float] = field(default_factory=dict)
+    signal_streaks: dict[str, int] = field(default_factory=dict)
 
     # ----- equity / drawdown -------------------------------------------------
     def mark_equity(self, mark_prices: dict[str, float], iso_ts: str) -> float:
@@ -109,6 +122,7 @@ class PortfolioState:
             self.day = utc_date
             self.day_start_equity = equity
             self.trades_today = 0
+            self.entries_today = 0
             self.halted = False          # kill switch re-arms each UTC day (not a
                                          # permanent window halt) so we can recover
 
@@ -123,14 +137,59 @@ class PortfolioState:
         o = self.open_orders.get(client_order_id)
         if not o:
             return
+        if o.status == "FILLED":
+            return
+        if not tx_hash:
+            raise ValueError("a confirmed fill requires a transaction hash")
         o.status = "FILLED"
         o.tx_hash = tx_hash
         o.price = price
+        o.error = None
         self.trade_count_total += 1
         self.trades_today += 1
+        if o.action in ("buy", "short"):
+            self.entries_today += 1
+
+    def mark_sent(self, client_order_id: str, tx_hash: str) -> None:
+        o = self.open_orders.get(client_order_id)
+        if not o:
+            return
+        o.status = "SENT"
+        o.tx_hash = tx_hash
+
+    def fail_order(self, client_order_id: str, error: str, *, unknown: bool = False) -> None:
+        o = self.open_orders.get(client_order_id)
+        if not o:
+            return
+        o.status = "UNKNOWN" if unknown else "FAILED"
+        o.error = error
+
+    def reconcile_order(self, client_order_id: str, note: str = "") -> None:
+        o = self.open_orders.get(client_order_id)
+        if not o:
+            return
+        o.status = "RECONCILE"
+        o.error = note or o.error
 
     def pending_orders(self) -> list[Order]:
-        return [o for o in self.open_orders.values() if o.status == "PENDING"]
+        return [o for o in self.open_orders.values()
+                if o.status in ("PENDING", "SENT", "UNKNOWN")]
+
+    def has_unresolved_order(self, token: str) -> bool:
+        return any(o.token == token and o.status in ("PENDING", "SENT", "UNKNOWN")
+                   for o in self.open_orders.values())
+
+    def record_execution_failure(self, token: str, now: float, base: float, cap: float) -> float:
+        count = self.execution_failures.get(token, 0) + 1
+        self.execution_failures[token] = count
+        delay = min(cap, base * (2 ** (count - 1)))
+        retry_at = now + delay
+        self.execution_retry_after[token] = retry_at
+        return retry_at
+
+    def clear_execution_failure(self, token: str) -> None:
+        self.execution_failures.pop(token, None)
+        self.execution_retry_after.pop(token, None)
 
     # ----- persistence (atomic write) ---------------------------------------
     def save(self, path: str) -> None:

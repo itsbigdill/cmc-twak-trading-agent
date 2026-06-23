@@ -1,3 +1,5 @@
+import copy
+
 from agent.signal_engine import (
     Regime,
     detect_regime,
@@ -73,3 +75,30 @@ def test_score_universe_skips_quote_asset(cfg):
     out = score_universe(snap, cfg)
     assert "USDT" not in out
     assert "BTC" in out
+
+
+def test_score_is_normalized_when_all_weights_are_scaled(cfg):
+    data = {
+        "rsi": 25, "macd_state": "bullish_cross", "ema_trend": "up",
+        "fear_greed_index": 35, "news_sentiment": 0.3,
+    }
+    base = score_token("CAKE", data, Regime.TREND_UP, cfg).score
+    scaled_cfg = copy.deepcopy(cfg)
+    scaled_cfg["signal"]["weights"] = {
+        key: value * 10 for key, value in cfg["signal"]["weights"].items()
+    }
+    assert score_token("CAKE", data, Regime.TREND_UP, scaled_cfg).score == base
+
+
+def test_x402_token_level_boost_affects_only_that_token(cfg):
+    data = {
+        "rsi": 50, "macd_state": "neutral", "ema_trend": "flat",
+        "fear_greed_index": 50, "news_sentiment": 0.0,
+        "funding_rate": 0.0, "btc_dominance": cfg["signal"]["dominance_ref"],
+    }
+    neutral = score_token("BAS", data, Regime.TREND_UP, cfg)
+    boosted = score_token("BAS", {**data, "x402_token_score": 0.8}, Regime.TREND_UP, cfg)
+    other = score_token("SIREN", data, Regime.TREND_UP, cfg)
+    assert boosted.components["x402"] == 0.8
+    assert boosted.score > neutral.score
+    assert other.score == neutral.score

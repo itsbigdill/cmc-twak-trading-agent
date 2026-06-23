@@ -174,6 +174,7 @@ def _bench_return(prices):
 
 def build_data(with_wallet=True, with_market=True):
     from agent.agent import load_config
+    from agent.leaderboard import current_status
     cfg = load_config(os.path.join(ROOT, "config.yaml"))
     bt = json.load(open(os.path.join(ROOT, "logs", "backtest_result.json")))
     rows = []
@@ -190,8 +191,19 @@ def build_data(with_wallet=True, with_market=True):
     else:
         market = _load_market_cache()     # quick build: reuse last full sweep (<=15min old)
     st, curve = {}, []
+    portfolio = {"total_usd": None, "trading_usd": None, "gas": {}, "holdings": []}
     if live:
-        st = json.load(open(os.path.join(ROOT, cfg["paths"]["state_file"])))
+        state_path = os.path.join(ROOT, cfg["paths"]["state_file"])
+        # A swap can finish while TWAK wallet calls are in flight.  Only publish a
+        # wallet/state pair from the same stable state generation; retry once if the
+        # atomic state file changed during collection.
+        for _ in range(2):
+            before = os.stat(state_path).st_mtime_ns
+            portfolio = (_wallet(cfg) if with_wallet else portfolio)
+            st = json.load(open(state_path))
+            after = os.stat(state_path).st_mtime_ns
+            if before == after:
+                break
         curve = st.get("equity_curve", [])
     dq = cfg["risk"]["drawdown_dq_reference_pct"] * 100
     ntok = len(cfg["twak"]["token_contracts"])
@@ -220,6 +232,22 @@ def build_data(with_wallet=True, with_market=True):
                  "maxdd_pct": bt["kpis"]["max_drawdown_pct"], "dq_pct": bt["kpis"]["dq_pct"],
                  "trades": bt["kpis"]["trades"], "tokens": ntok}
         track_source = "backtest"
+    lb_status = current_status(cfg) if live else {}
+    if lb_status.get("return_pct") is not None:
+        # The competition page is authoritative for all-time scoring.  Preserve
+        # internal executable metrics for transparency and for range tabs.
+        track["internal_return_pct"] = track["return_pct"]
+        track["internal_maxdd_pct"] = track["maxdd_pct"]
+        track["internal_trades"] = track["trades"]
+        track["return_pct"] = float(lb_status["return_pct"])
+        if lb_status.get("drawdown_pct") is not None:
+            track["maxdd_pct"] = float(lb_status["drawdown_pct"])
+        if lb_status.get("trades") is not None:
+            track["trades"] = int(lb_status["trades"])
+        track["leaderboard"] = True
+        track["leaderboard_rank"] = lb_status.get("rank")
+        track["leaderboard_value_usd"] = lb_status.get("value_usd")
+        track["leaderboard_generated_ts"] = lb_status.get("leaderboard_generated_ts")
     # open positions with entry -> current price -> unrealized P&L
     positions = []
     if live and st.get("positions"):
@@ -240,7 +268,7 @@ def build_data(with_wallet=True, with_market=True):
         "address": cfg["twak"]["agent_address"], "agent_id": cfg.get("bnb_sdk", {}).get("agent_id", ""),
         "live": live, "mode": mode, "generated_ts": int(time.time()),
         "llm": prov or "rule-based", "posture": posture,
-        "portfolio": _wallet(cfg) if with_wallet else {"total_usd": None, "holdings": []},
+        "portfolio": portfolio,
         "market": market,
         "track": track, "track_source": track_source,
         "since": curve[0][0] if (live and curve) else None,
@@ -266,7 +294,7 @@ def _activity(rows, cfg, st):
     held = {t: p.get("avg_price") for t, p in (st.get("positions") or {}).items()}
     lots, items = {}, []
     for r in rows:
-        k = r.get("kind"); tok = r.get("token", ""); ts = (r.get("ts") or "")[11:16]
+        k = r.get("kind"); tok = r.get("token", ""); ts = r.get("ts") or ""
         if k == "fill":
             act = r.get("action"); size = r.get("size_usd") or 0; px = r.get("fill_price")
             if act == "buy":
@@ -567,22 +595,28 @@ const D=/*DATA*/, $=i=>document.getElementById(i);
 function fbk(el,s){el.outerHTML='<span class="ico sm lt">'+(s||'?').slice(0,3)+'</span>';}
 const fmtpx=v=>v>=1?'$'+(+v).toFixed(2):'$'+(+v||0).toPrecision(3);
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const fmt=s=>{if(!s)return'';const d=(''+s).slice(0,10).split('-');return MON[(+d[1]||1)-1]+' '+(+d[2]||'');};
+const TZ='America/New_York';
+const _dt=s=>s?new Date((typeof s==='number'?s*1000:s)):null;
+const fmtDate=s=>{const d=_dt(s);return d?new Intl.DateTimeFormat('en-US',{timeZone:TZ,month:'short',day:'numeric'}).format(d):'';};
+const fmtTime=s=>{const d=_dt(s);return d?new Intl.DateTimeFormat('en-US',{timeZone:TZ,hour:'numeric',minute:'2-digit'}).format(d):'';};
+const fmtStamp=s=>{const d=_dt(s);return d?new Intl.DateTimeFormat('en-US',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(d):'';};
+const fmtChart=(s,short=false)=>short?fmtTime(s):fmtDate(s);
 const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#fb7185','rgba(251,113,133,.13)','downtrend'],chop:['#fbbf63','rgba(251,191,99,.13)','chop']};
 $('mode').textContent={live:'LIVE',paper:'LIVE',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
-$('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago';
+$('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago · Miami '+fmtTime(D.generated_ts);
 $('chips').innerHTML=[`<span class="chip on">🟢 registered</span>`,
  `<span class="chip">ERC-8004 <b>#${D.agent_id}</b></span>`,
  `<span class="chip">🧠 <b>${D.llm}</b></span>`,
  `<span class="chip"><b>${D.posture}</b></span>`,
+ `<span class="chip">Miami <b>${fmtTime(D.generated_ts)}</b></span>`,
  `<span class="chip"><b>${D.track.tokens}</b>/149 eligible</span>`].join('');
 
 const pv=D.portfolio.total_usd;
 if(pv!=null){const t0=performance.now();(function a(n){let p=Math.min((n-t0)/750,1);p=1-Math.pow(1-p,3);
  $('pv').textContent='$'+(pv*p).toFixed(2);if(p<1)requestAnimationFrame(a);})(t0);}else $('pv').textContent='—';
 const _g=D.portfolio.gas||{amount:0,usd:0};
-$('pvsub').innerHTML=_g.usd?`+ <img src="${_g.logo||''}" onerror="this.outerHTML='◆'" style="width:14px;height:14px;vertical-align:-2px;border-radius:50%"/> $${_g.usd.toFixed(2)}`:(D.portfolio.holdings.length?'':'fund wallet to begin');
+$('pvsub').innerHTML=_g.usd?`Gas reserve · ${_g.amount.toFixed(5)} BNB · $${_g.usd.toFixed(2)} · excluded from trading balance, PnL & leaderboard`:(D.portfolio.holdings.length?'':'fund wallet to begin');
 $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <img class="ico" src="${h.logo}" onerror="this.outerHTML='<i class=dotk></i>'"/>${h.sym}
  <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
@@ -596,10 +630,15 @@ function _mdd(eq){let pk=eq[0],d=0;for(const v of eq){if(v>pk)pk=v;if(pk>0)d=Mat
 function _slice(h){if(h==null||!FULL.length)return FULL.slice();const cut=D.generated_ts*1000-h*3600*1000;const s=FULL.filter(p=>Date.parse(p[0])>=cut);return s.length<2?FULL.slice(-2):s;}
 function applyRange(h,label){
  const s=_slice(h),eq=s.map(p=>p[1]);
- const ret=(eq.length>1&&eq[0])?(eq[eq.length-1]/eq[0]-1)*100:0, dd=_mdd(eq);
+ const all=h==null, internalRet=(eq.length>1&&eq[0])?(eq[eq.length-1]/eq[0]-1)*100:0;
+ const ret=(all&&t.leaderboard)?t.return_pct:internalRet;
+ const dd=(all&&t.leaderboard)?t.maxdd_pct:_mdd(eq);
  $('retlab').textContent='PnL · '+label;
  $('ret').textContent=(ret>=0?'+':'')+ret.toFixed(2)+'%';$('ret').className='edge num'+(ret>=0?'':' neg');
- if(eq.length)$('retsub').textContent=fmtpx(eq[0])+' → '+fmtpx(eq[eq.length-1]);
+ if(all&&t.leaderboard){
+  const iv=t.internal_return_pct, id=t.internal_maxdd_pct;
+  $('retsub').textContent=`Leaderboard source of truth${t.leaderboard_rank?' · rank #'+t.leaderboard_rank:''} · executable PnL ${iv>=0?'+':''}${iv.toFixed(2)}% / DD ${id.toFixed(2)}%`;
+ }else if(eq.length)$('retsub').textContent=fmtpx(eq[0])+' → '+fmtpx(eq[eq.length-1]);
  $('dd').textContent=dd.toFixed(2)+'%';$('hr').textContent=Math.max(0,(t.dq_pct-dd)).toFixed(0)+'%';
  drawChart(s);
 }
@@ -654,7 +693,7 @@ if(D.positions&&D.positions.length){
 
 // recent activity — full log, enriched: buys = entry+size; exits = entry→exit + P&L% + value
 $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
- const t=a.ts||'';
+ const t=a.ts?fmtTime(a.ts):'';
  if(a.kind==='fill'){
   const buy=a.action==='buy', trim=a.action==='trim', col=buy?'var(--g)':'var(--b)', tag=buy?'BUY':(trim?'TRIM':'CLOSE');
   const ic=a.logo?`<img class="ico sm" src="${a.logo}" onerror="fbk(this,'${a.token}')"/>`:`<span class="ico sm lt">${(a.token||'').slice(0,3)}</span>`;
@@ -686,6 +725,7 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
 function drawChart(curve){
  const N=curve.length;if(N<2)return;
  const eqA=curve.map(p=>p[1]),dts=curve.map(p=>p[0]);
+ const spanMs=Date.parse(dts[N-1])-Date.parse(dts[0]), shortAxis=spanMs<=36*3600*1000;
  const W=900,H=290,L=14,R=54,T=18,B=28;
  let mn=Math.min(...eqA),mx=Math.max(...eqA);const pad=(mx-mn)*.12||1;mn-=pad;mx+=pad;
  const X=i=>L+i*(W-L-R)/(N-1),Y=v=>T+(1-(v-mn)/(mx-mn))*(H-T-B);
@@ -711,15 +751,15 @@ function drawChart(curve){
   <style>@keyframes dr{to{stroke-dashoffset:0}}</style>
   <line id="cx" x1="0" y1="${T}" x2="0" y2="${H-B}" stroke="rgba(255,255,255,.26)" stroke-width="1" opacity="0"/>
   <circle id="cd" r="4" fill="${col}" stroke="#070b14" stroke-width="2" opacity="0"/>
-  <text x="${L}" y="${H-8}" fill="var(--mut2)" font-size="10">${fmt(dts[0])}</text>
-  <text x="${(L+(W-R))/2}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="middle">${fmt(dts[Math.floor(N/2)])}</text>
-  <text x="${W-R}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="end">${fmt(dts[N-1])}</text></svg>`);
+  <text x="${L}" y="${H-8}" fill="var(--mut2)" font-size="10">${fmtChart(dts[0],shortAxis)}</text>
+  <text x="${(L+(W-R))/2}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="middle">${fmtChart(dts[Math.floor(N/2)],shortAxis)}</text>
+  <text x="${W-R}" y="${H-8}" fill="var(--mut2)" font-size="10" text-anchor="end">${fmtChart(dts[N-1],shortAxis)}</text></svg>`);
  const svg=$('svg'),tip=$('tip'),cx=$('cx'),cd=$('cd');
  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();let i=Math.round(((e.clientX-r.left)/r.width*W-L)/((W-L-R)/(N-1)));
   i=Math.max(0,Math.min(N-1,i));const x=X(i),y=Y(eqA[i]);
   cx.setAttribute('x1',x);cx.setAttribute('x2',x);cx.setAttribute('opacity','1');cd.setAttribute('cx',x);cd.setAttribute('cy',y);cd.setAttribute('opacity','1');
   tip.style.opacity=1;tip.style.left=(x/W*100)+'%';tip.style.top=(y/H*100)+'%';
-  tip.innerHTML=`<b>$${eqA[i].toFixed(2)}</b> · ${fmt(dts[i])}`;});
+  tip.innerHTML=`<b>$${eqA[i].toFixed(2)}</b> · ${fmtStamp(dts[i])}`;});
  svg.addEventListener('mouseleave',()=>{tip.style.opacity=0;cx.setAttribute('opacity','0');cd.setAttribute('opacity','0');});
 }
 </script></body></html>"""

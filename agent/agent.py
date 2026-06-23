@@ -23,16 +23,18 @@ import yaml
 from . import risk_gate
 from .cmc_client import build_cmc_client
 from .signal_source import build_signal_source
-from .decision import build_decider
-from .executor import build_executor
+from .decision import build_decider, tradeable_buy_tokens
+from .executor import AmbiguousExecutionError, build_executor
 from .logbook import DecisionLog, utc_date, utc_hour, utc_now_iso
+from .leaderboard import current_status
 from .signal_engine import score_universe
-from .state import PortfolioState
+from .state import PortfolioState, make_order_id
 
 
 def load_config(path: str = "config.yaml") -> dict:
     with open(path) as f:
         cfg = yaml.safe_load(f)
+    cfg["_config_dir"] = os.path.dirname(os.path.abspath(path))
     # Optionally load the broad, filter-verified trade universe from a file
     # (scripts/build_universe.py) instead of the inline curated set.
     cf = cfg["twak"].get("contracts_file")
@@ -44,6 +46,21 @@ def load_config(path: str = "config.yaml") -> dict:
                 loaded = _json.load(cff)
             if loaded:
                 cfg["twak"]["token_contracts"] = loaded
+    # Preserve the curated base, then overlay the last execution-validated
+    # dynamic universe.  Readers such as the quick dashboard builder should see
+    # the same universe as the live agent even when they do not instantiate the
+    # signal source/UniverseManager.
+    cfg["_static_contracts"] = dict(cfg["twak"]["token_contracts"])
+    if cfg.get("universe", {}).get("enabled"):
+        import json as _json
+        cache = cfg["universe"].get("cache_file", "state/universe_cache.json")
+        cp = cache if os.path.isabs(cache) else os.path.join(cfg["_config_dir"], cache)
+        try:
+            cached = _json.load(open(cp))
+            cfg["twak"]["token_contracts"].update(cached.get("assets") or {})
+            cfg["universe_runtime"] = cached.get("metrics") or {}
+        except Exception:
+            pass
     # Signal universe MUST equal the trade universe, else the strategy can only
     # act on tokens it also has signals for. Derive it from token_contracts so
     # the two can never drift (benchmark drives regime; quote is the cash leg).
@@ -56,17 +73,36 @@ def load_config(path: str = "config.yaml") -> dict:
     return cfg
 
 
-def reconcile(state: PortfolioState, log: DecisionLog) -> None:
-    """On startup, any PENDING order is from a crash mid-send. Mark for review.
-
-    In dry-run we can't query the chain, so we flag them RECONCILE and do NOT
-    resend. In live, this is where you'd query the tx by client_order_id/nonce.
-    """
+def reconcile(state: PortfolioState, log: DecisionLog, executor=None) -> None:
+    """Resolve interrupted orders from persisted pre-trade balance snapshots."""
     pend = state.pending_orders()
     for o in pend:
-        o.status = "RECONCILE"
-        log.event("reconcile", order_id=o.client_order_id, token=o.token,
-                  action=o.action, note="left PENDING by prior run; not resent")
+        try:
+            result = executor.reconcile(o, state) if hasattr(executor, "reconcile") else None
+            if result and result.filled:
+                log.event("reconcile_fill", order_id=o.client_order_id, token=o.token,
+                          action=o.action, tx_hash=result.tx_hash,
+                          fill_price=result.fill_price, quantity=result.quantity,
+                          quote_amount=result.quote_amount)
+                continue
+            if o.status == "FAILED":
+                log.event("reconcile_failed", order_id=o.client_order_id, token=o.token,
+                          action=o.action, tx_hash=o.tx_hash, error=o.error)
+                continue
+            if o.pre_token_atomic is None or o.pre_quote_atomic is None:
+                state.reconcile_order(o.client_order_id,
+                                      "legacy unresolved order; no balance snapshots")
+            else:
+                state.fail_order(o.client_order_id,
+                                 "no conclusive balance delta; manual review required",
+                                 unknown=True)
+            log.event("reconcile", order_id=o.client_order_id, token=o.token,
+                      action=o.action, status=o.status, tx_hash=o.tx_hash,
+                      note=o.error or "not resent")
+        except Exception as e:
+            state.fail_order(o.client_order_id, f"reconciliation failed: {e}", unknown=True)
+            log.event("reconcile_error", order_id=o.client_order_id, token=o.token,
+                      action=o.action, error=str(e))
 
 
 def _x402_signal(cfg, log, state) -> None:
@@ -101,8 +137,26 @@ def _x402_signal(cfg, log, state) -> None:
                 state.x402_bias = max(-1.0, min(1.0, float(bias)))   # <- now affects scoring
             except (TypeError, ValueError):
                 pass
+        # Token-level x402 signals are more useful than a global market bias in
+        # this tournament: the paid endpoint returns a ranked "top" list, so feed
+        # those scores into each token's deterministic score.  Missing tokens get
+        # 0 downstream; malformed rows are ignored.
+        boosts: dict[str, float] = {}
+        if isinstance(sig, dict):
+            for row in sig.get("top") or []:
+                if not isinstance(row, dict):
+                    continue
+                token = str(row.get("token") or "").upper()
+                if not token:
+                    continue
+                try:
+                    boosts[token] = max(-1.0, min(1.0, float(row.get("score", 0.0))))
+                except (TypeError, ValueError):
+                    continue
+        if boosts:
+            state.x402_tokens = boosts
         log.event("x402", url=url, tx=tx, paid=data.get("amountPaid") or cap,
-                  bias=state.x402_bias, signal=sig)
+                  bias=state.x402_bias, token_boosts=boosts, signal=sig)
     except Exception as e:
         log.event("x402_error", error=str(e))
 
@@ -132,28 +186,68 @@ def _erc8004_attest(cfg, state, log) -> None:
         log.event("erc8004_error", error=str(e))
 
 
-def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price, log, reason, now=None) -> None:
-    """Persist-before-send, execute, log fill or error, persist again."""
-    state.save(cfg["paths"]["state_file"])      # idempotency: record intent first
+def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price,
+                  log, reason, now=None) -> bool:
+    """Execute once, logging/counting only a balance-reconciled confirmed fill."""
+    now_ts = now if now is not None else time.time()
+    oid = make_order_id(tick_id, token, action)
+    retry_at = state.execution_retry_after.get(token, 0.0)
+    if now_ts < retry_at:
+        log.event("execution_backoff", token=token, action=action,
+                  retry_after=retry_at, seconds_remaining=round(retry_at - now_ts, 1))
+        return False
+    if state.has_unresolved_order(token):
+        log.event("execution_blocked", token=token, action=action,
+                  reason="unresolved prior order requires reconciliation")
+        return False
+
     before = state.realized_pnl
+    persist = lambda: state.save(cfg["paths"]["state_file"])
+    ex_cfg = cfg.get("execution", {})
     try:
-        tx = executor.execute(tick_id=tick_id, token=token, action=action,
-                              size_usd=size_usd, price=price, state=state, log=log, now=now)
+        result = executor.execute(tick_id=tick_id, token=token, action=action,
+                                  size_usd=size_usd, price=price, state=state, log=log,
+                                  now=now_ts, persist=persist)
+        if not result.filled:
+            log.event("execution_noop", token=token, action=action,
+                      order_id=result.order_id, status=result.status, note=result.note)
+            return False
         # realized P&L booked by this trade (closes/sells); ~0 for opens
         realized = round(state.realized_pnl - before, 4)
-        # fill price: exact entry (avg_price) for a buy; the mark at exit for a close
-        pos = state.positions.get(token)
-        fill_price = round(pos.avg_price if (action == "buy" and pos) else (price or 0.0), 8)
-        log.event("fill", token=token, action=action, size_usd=size_usd,
-                  tx_hash=tx, reason=reason, realized=realized, fill_price=fill_price)
+        state.clear_execution_failure(token)
+        log.event("fill", token=token, action=action,
+                  size_usd=round(result.quote_amount, 8), tx_hash=result.tx_hash,
+                  reason=reason, realized=realized,
+                  fill_price=round(result.fill_price, 10), quantity=result.quantity,
+                  order_id=result.order_id)
+        return True
+    except AmbiguousExecutionError as e:
+        if e.tx_hash and oid in state.open_orders:
+            state.mark_sent(oid, e.tx_hash)
+        state.fail_order(oid, str(e), unknown=True)
+        retry = state.record_execution_failure(
+            token, now_ts, float(ex_cfg.get("retry_base_seconds", 60)),
+            float(ex_cfg.get("retry_max_seconds", 900)),
+        )
+        log.event("exec_unknown", token=token, action=action, order_id=oid,
+                  tx_hash=e.tx_hash or None, error=str(e), retry_after=retry)
+        return False
     except Exception as e:
-        log.event("exec_error", token=token, action=action, error=str(e))
+        state.fail_order(oid, str(e))
+        retry = state.record_execution_failure(
+            token, now_ts, float(ex_cfg.get("retry_base_seconds", 60)),
+            float(ex_cfg.get("retry_max_seconds", 900)),
+        )
+        log.event("exec_error", token=token, action=action, order_id=oid,
+                  error=str(e), retry_after=retry)
+        return False
     finally:
         state.save(cfg["paths"]["state_file"])
 
 
-def _force_close(executor, state, cfg, tick_id, token, price, log, reason, now=None) -> None:
-    _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0, price, log, reason, now=now)
+def _force_close(executor, state, cfg, tick_id, token, price, log, reason, now=None) -> bool:
+    return _exec_and_log(executor, state, cfg, tick_id, token, "close", 0.0,
+                         price, log, reason, now=now)
 
 
 def _mark_px(prices, state, token) -> float:
@@ -169,8 +263,34 @@ def _mark_px(prices, state, token) -> float:
 
 def run_tick(cfg, state, cmc, decider, executor, log) -> None:
     """Live tick: fetch market data, then process it."""
+    if state.pending_orders():
+        reconcile(state, log, executor)
+        state.save(cfg["paths"]["state_file"])
+    if hasattr(cmc, "maybe_refresh_universe"):
+        try:
+            if cmc.maybe_refresh_universe():
+                log.event("universe_refreshed", assets=len(cfg["twak"]["token_contracts"]))
+        except Exception as e:
+            log.event("universe_refresh_error", error=str(e))
     snapshot = cmc.get_snapshot(cfg["whitelist"])
     prices = {t: d.get("price", 0.0) for t, d in snapshot.items()}
+    # Risk marks and stops use what the position can actually be liquidated for,
+    # not a potentially stale CMC mark.  Signal calculation still uses CMC/TWAK
+    # history, keeping market selection independent from execution mechanics.
+    if cfg.get("mode") == "live" and hasattr(executor, "executable_price"):
+        for token in list(state.positions):
+            try:
+                px = executor.executable_price(token)
+                if px > 0:
+                    prices[token] = px
+                    snapshot.setdefault(token, {})["executable_price"] = px
+                    log.event("liquidation_quote", token=token, executable_price=px,
+                              reference_price=snapshot[token].get("price"))
+                else:
+                    snapshot.setdefault(token, {})["executable_quote_failed"] = True
+            except Exception as e:
+                snapshot.setdefault(token, {})["executable_quote_failed"] = True
+                log.event("liquidation_quote_error", token=token, error=str(e))
     process_tick(cfg, state, snapshot, prices, decider, executor, log)
 
 
@@ -228,23 +348,63 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     #     Only act on tokens with a REAL live price this tick — a missing/zero
     #     price must never be read as a -100% move and trigger a false stop.
     for tkn in list(state.positions):
-        px = prices.get(tkn, 0.0)
+        # In live mode, never infer a stop from a non-executable reference mark.
+        if snapshot.get(tkn, {}).get("executable_quote_failed"):
+            continue
+        px = snapshot.get(tkn, {}).get("executable_price", prices.get(tkn, 0.0))
         if px <= 0:
             continue
+        pos = state.positions[tkn]
+        pos.peak_executable_price = max(pos.peak_executable_price or pos.avg_price, px)
         pnl = state.position_pnl_pct(tkn, px)
+        lock = cfg.get("profit_lock", {})
+        stop_reason = None
+        stop_price = None
         if pnl <= -r["per_position_stop_pct"]:
+            stop_reason = f"per-position stop ({pnl:.3f})"
+        elif lock.get("enabled") and pos.avg_price > 0:
+            peak_pnl = pos.peak_executable_price / pos.avg_price - 1.0
+            if peak_pnl >= float(lock.get("activation_pct", 0.10)):
+                stop_price = pos.avg_price * (1.0 + float(lock.get("breakeven_floor_pct", 0.02)))
+                if peak_pnl >= float(lock.get("trailing_activation_pct", 0.20)):
+                    stop_price = max(stop_price, pos.peak_executable_price
+                                     * (1.0 - float(lock.get("trailing_gap_pct", 0.08))))
+                if px <= stop_price:
+                    stop_reason = f"profit lock (peak={peak_pnl:.3f}, floor={stop_price:.8f})"
+        if stop_reason:
             log.event("position_stop", token=tkn, pnl_pct=round(pnl, 4),
-                      note=f"<= -{r['per_position_stop_pct']} -> close")
+                      executable_price=px, stop_price=stop_price, note=stop_reason)
             _force_close(executor, state, cfg, tick_id, tkn, px,
-                         log, f"per-position stop ({pnl:.3f})", now=now_ts)
+                         log, stop_reason, now=now_ts)
+            continue
+        if lock.get("enabled") and not pos.profit_taken \
+                and pnl >= float(lock.get("partial_take_pct", 0.25)):
+            trim_usd = pos.qty * px * float(lock.get("partial_sell_fraction", 0.25))
+            if trim_usd >= float(lock.get("min_partial_sell_usd", 1.0)):
+                done = _exec_and_log(executor, state, cfg, tick_id, tkn, "trim",
+                                     trim_usd, px, log,
+                                     f"partial profit take ({pnl:.3f})", now=now_ts)
+                if done and tkn in state.positions:
+                    state.positions[tkn].profit_taken = True
+                    state.save(cfg["paths"]["state_file"])
 
     # refresh equity after any stops
     equity = state.mark_equity(prices, tick_id)
 
-    # premium x402 bias (bought per-request) tilts every token's score -> load-bearing
+    # Premium x402 signal (bought per-request) is load-bearing:
+    #   * global bias tilts the whole market (if the endpoint sends it)
+    #   * token boosts tilt only the paid endpoint's ranked top names
     for d in snapshot.values():
         d["x402_bias"] = state.x402_bias
+    for token, boost in state.x402_tokens.items():
+        if token in snapshot:
+            snapshot[token]["x402_token_score"] = boost
     signals = score_universe(snapshot, cfg)
+    confirm = cfg.get("decision", {}).get("signal_confirmation", {})
+    base_confirm = float(confirm.get("base_score", cfg["signal"]["entry_threshold"]))
+    for token, signal in signals.items():
+        state.signal_streaks[token] = (state.signal_streaks.get(token, 0) + 1
+                                       if signal.score >= base_confirm else 0)
     for t, s in signals.items():
         log.event("signal", token=t, score=s.score, regime=s.regime.value,
                   actionable=s.actionable, components=s.components)
@@ -253,17 +413,30 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         "cash_usd": state.cash_usd,
         "total_equity_usd": equity,
         "positions": {t: p.qty for t, p in state.positions.items()},
+        "position_values": {t: p.qty * prices.get(t, p.avg_price)
+                            for t, p in state.positions.items()},
     }
+    leaderboard = current_status(cfg) if cfg.get("mode") == "live" else {}
+    executable_return_pct = ((equity / state.initial_equity - 1.0) * 100
+                             if state.initial_equity > 0 else 0.0)
     risk_limits = {
         "max_position_pct": cfg["risk"]["max_position_pct"],
         "daily_loss_remaining_pct": max(0.0, cfg["risk"]["daily_loss_stop_pct"]
                                         - state.daily_loss(equity)),
-        "max_trades_left_today": cfg["risk"]["max_trades_per_day"] - state.trades_today,
+        "max_trades_left_today": cfg["risk"]["max_trades_per_day"] - state.entries_today,
+        "leaderboard_rank": leaderboard.get("rank"),
+        "leaderboard_return_pct": leaderboard.get("return_pct"),
+        "leaderboard_drawdown_pct": leaderboard.get("drawdown_pct"),
+        "leaderboard_top5_return_pct": leaderboard.get("top5_return_pct"),
+        "executable_return_pct": executable_return_pct,
+        "signal_streaks": dict(state.signal_streaks),
     }
 
     setattr(decider, "_now", now_ts)                     # for time-based re-entry cooldown
     decisions = decider.decide(snapshot, signals, portfolio, risk_limits)
-    tradeable = set(cfg["twak"]["token_contracts"])      # eligible + has a contract
+    # deny_buy is entry-only and conditional: a quarantined token can buy again
+    # only after UniverseManager records a successful executable round-trip.
+    tradeable = tradeable_buy_tokens(cfg)
 
     for d in decisions:
         token = d["token"]
@@ -281,13 +454,16 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
             token=token, action=d["action"], requested_size_pct=d["size_pct"],
             confidence=d["confidence"], token_risk_score=token_risk,
             state=state, equity=equity, cfg=cfg, now=now_ts,
+            leaderboard_drawdown_pct=risk_limits.get("leaderboard_drawdown_pct"),
         )
         if not verdict.approved:
             log.event("blocked", token=token, action=d["action"], reason=verdict.reason)
             continue
 
+        execution_size = (float(d.get("size_usd", 0.0)) if d["action"] == "trim"
+                          else verdict.adjusted_size_usd)
         _exec_and_log(executor, state, cfg, tick_id, token, d["action"],
-                      verdict.adjusted_size_usd, prices.get(token, 0.0),
+                      execution_size, prices.get(token, 0.0),
                       log, verdict.reason, now=now_ts)
 
     # --- Guarantee the min-1-trade/day requirement during the UTC day -------
@@ -312,17 +488,17 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
                     state=state, equity=equity, cfg=cfg, now=now_ts,
                 )
                 if verdict.approved:
-                    _exec_and_log(executor, state, cfg, tick_id, s.token, "buy",
-                                  verdict.adjusted_size_usd, px,
-                                  log, "maintenance trade (min 1/day)", now=now_ts)
-                    done = True
-                    break
+                    done = _exec_and_log(executor, state, cfg, tick_id, s.token, "buy",
+                                         verdict.adjusted_size_usd, px,
+                                         log, "maintenance trade (min 1/day)", now=now_ts)
+                    if done:
+                        break
         if not done and state.positions:           # fall back: trim smallest holding
             tkn = min(state.positions,
                       key=lambda t: abs(state.positions[t].qty * state.positions[t].avg_price))
-            _force_close(executor, state, cfg, tick_id, tkn, _mark_px(prices, state, tkn),
-                         log, "maintenance trade (min 1/day, trim)", now=now_ts)
-            done = True
+            done = _force_close(executor, state, cfg, tick_id, tkn,
+                                _mark_px(prices, state, tkn), log,
+                                "maintenance trade (min 1/day, trim)", now=now_ts)
         if not done:
             log.event("maintenance_skipped", reason="no deployable cash and no positions to trim")
 
@@ -363,10 +539,17 @@ def main(argv=None):
         state.day_start_equity = args.seed_cash
         log.event("seed", cash=args.seed_cash)
 
-    reconcile(state, log)
+    executor = build_executor(cfg)
+    if cfg.get("mode") == "live" and hasattr(executor, "preflight"):
+        executor.preflight()
+    reconcile(state, log, executor)
+    if cfg.get("mode") == "live" and hasattr(executor, "reconcile_portfolio"):
+        changes = executor.reconcile_portfolio(state)
+        if changes:
+            log.event("portfolio_reconciled", changes=changes)
+    state.save(cfg["paths"]["state_file"])
     cmc = build_signal_source(cfg)
     decider = build_decider(cfg)
-    executor = build_executor(cfg)
 
     interval = cfg["poll_interval_minutes"] * 60
     backoff = cfg["rpc"]["backoff_base_seconds"]
