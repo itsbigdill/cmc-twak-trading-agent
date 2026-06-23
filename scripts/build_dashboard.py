@@ -264,6 +264,17 @@ def build_data(with_wallet=True, with_market=True):
     posture = (cfg.get("decision", {}).get("strategy_label") or
                ("Aggressive" if kill >= 0.24 else "Balanced" if kill >= 0.18 else "Defensive"))
     prov = _llm_provider()
+    x402_rows = [r for r in rows if r.get("kind") == "x402"]
+    latest_x402 = x402_rows[-1] if x402_rows else {}
+    latest_boosts = latest_x402.get("token_boosts") or {}
+    latest_x402_signal = {
+        "ts": latest_x402.get("ts"),
+        "paid": latest_x402.get("paid"),
+        "bias": latest_x402.get("bias"),
+        "boosts": [{"token": k, "score": round(float(v), 4)}
+                   for k, v in sorted(latest_boosts.items(),
+                                      key=lambda kv: float(kv[1]), reverse=True)]
+    } if latest_x402 else None
     return {
         "address": cfg["twak"]["agent_address"], "agent_id": cfg.get("bnb_sdk", {}).get("agent_id", ""),
         "live": live, "mode": mode, "generated_ts": int(time.time()),
@@ -280,7 +291,8 @@ def build_data(with_wallet=True, with_market=True):
         "risk": {"kill": kill * 100,
                  "stop": cfg["risk"]["per_position_stop_pct"] * 100, "policy": cfg["decision"]["policy"]},
         "blocked": len([r for r in rows if r.get("kind") == "blocked"]),
-        "x402_n": len([r for r in rows if r.get("kind") == "x402"]),
+        "x402_n": len(x402_rows),
+        "x402": latest_x402_signal,
         "attest_tx": next((r.get("tx") for r in reversed(rows)
                            if r.get("kind") == "erc8004_attest" and r.get("tx")), None),
         "activity": _activity(rows, cfg, st),
@@ -323,7 +335,12 @@ def _activity(rows, cfg, st):
                               "realized": realized, "value": round(value, 2) if value else None,
                               "logo": _logo(tok, tc.get(tok)), "ts": ts})
         elif k == "x402":
-            items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts})
+            boosts = r.get("token_boosts") or {}
+            items.append({"kind": "x402", "tx": r.get("tx") or r.get("tx_hash"), "ts": ts,
+                          "boosts": [{"token": k, "score": round(float(v), 4)}
+                                     for k, v in sorted(boosts.items(),
+                                                        key=lambda kv: float(kv[1]), reverse=True)],
+                          "bias": r.get("bias")})
         # blocked events are intentionally NOT shown in the feed (the feed is what the
         # agent DID). Full transparency stays via "raw log" + the rule-adherence count.
         elif k in ("position_stop", "kill_switch"):
@@ -658,12 +675,16 @@ const mk=D.market;
 if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
  const fl=mk.fg<25?'Extreme fear':mk.fg<45?'Fear':mk.fg<55?'Neutral':mk.fg<75?'Greed':'Extreme greed';
  const fgc=mk.fg<45?'var(--r)':mk.fg>55?'var(--g)':'var(--am)';
+ const xb=(D.x402&&D.x402.boosts)||[];
+ const xhtml=xb.length?`<div class="cell"><div class="lab">Paid x402 signal</div><div class="mkv" style="font-size:13px;color:var(--b)">${xb.slice(0,3).map(b=>`${b.token} +${(+b.score).toFixed(2)}`).join(' · ')}</div></div>`:
+  `<div class="cell"><div class="lab">Paid x402 signal</div><div class="mkv" style="font-size:13px;color:var(--mut)">waiting</div></div>`;
  $('market').innerHTML=`
   <div class="mstats">
     <div class="cell"><div class="lab">Fear &amp; Greed</div><div class="mkv" style="color:${fgc};font-size:15px">${mk.fg} · ${fl}</div></div>
     <div class="cell"><div class="lab">BTC dominance</div><div class="mkv num">${mk.dom}%</div></div>
     <div class="cell"><div class="lab">Funding (perps)</div><div class="mkv num" style="color:${mk.funding>=0?'var(--g)':'var(--r)'}">${mk.funding>=0?'+':''}${mk.funding}%</div></div>
     <div class="cell"><div class="lab">Bullish now</div><div class="mkv num"><b class="pos">${mk.bullish}</b> / ${mk.total}</div></div>
+    ${xhtml}
   </div>`;
  $('lead').innerHTML=mk.leaderboard.map((l,i)=>{const p=l.score>=0,c=p?'var(--g)':'var(--r)';
    const px=fmtpx(l.price);
@@ -704,7 +725,8 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  }
  if(a.kind==='x402'){const real=a.tx&&(''+a.tx).startsWith('0x')&&!(''+a.tx).startsWith('0xMOCK');
   const link=real?` <a href="https://basescan.org/tx/${a.tx}" target="_blank">↗</a>`:'';
-  return `<div class="act"><span class="ico sm lt">x4</span><span class="kd" style="color:var(--b)">X402</span><span class="tkn"></span><span class="rs">paid $0.001 · premium signal${link}</span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;}
+  const boosts=(a.boosts&&a.boosts.length)?' · '+a.boosts.slice(0,3).map(b=>`${b.token} +${(+b.score).toFixed(2)}`).join(' · '):'';
+  return `<div class="act"><span class="ico sm lt">x4</span><span class="kd" style="color:var(--b)">X402</span><span class="tkn"></span><span class="rs">paid $0.001 · boosts scoring${boosts}${link}</span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;}
  if(a.kind==='blocked'){
   return `<div class="act"><span style="width:17px;display:inline-block"></span><span class="kd" style="color:var(--am)">BLOCKED</span><span class="tkn">${a.token||''}</span><span class="rs">${a.reason||''}</span><span class="apnl"></span><span class="aval"></span><span class="tm">${t}</span></div>`;}
  const lbl={position_stop:'STOP',kill_switch:'KILL'}[a.kind]||(a.kind||'').toUpperCase();
@@ -716,7 +738,7 @@ $('activity').innerHTML=((D.activity&&D.activity.length)?D.activity:[]).map(a=>{
  const S=[
   {i:'📊',n:'CoinMarketCap Agent Hub',p:'3 tools'},
   {i:'⚡',n:'Trust Wallet Agent Kit',p:'self-custody'},
-  {i:'💸',n:'x402 micropayments',p:(D.x402_n||0)+' paid'},
+  {i:'💸',n:'x402 micropayments',p:(D.x402_n||0)+' paid'+(D.x402&&D.x402.boosts&&D.x402.boosts[0]?` · ${D.x402.boosts[0].token} +${(+D.x402.boosts[0].score).toFixed(2)}`:'')},
   {i:'🤖',n:'BNB ERC-8004 identity',p:`<a href="${bnb}" target="_blank">#${D.agent_id} ↗</a>`}];
  $('stack').innerHTML=S.map(s=>`<div class="stk"><span class="sti">${s.i}</span><div class="stm"><b>${s.n}</b></div><span class="stp">${s.p}</span></div>`).join('');
 })();
