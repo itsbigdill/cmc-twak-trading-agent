@@ -260,7 +260,7 @@ llm:
   # the deterministic RotationDecider runs alone. Override model via GEMINI_MODEL /
   # ANTHROPIC_MODEL env. No LLM requirement from the hackathon — this is optional polish.
   max_tokens: 1500
-  second_gate: false            # deterministic validated strategy executes; LLM still enriches signals/news
+  second_gate: true             # AI review/veto only: may reduce/veto buys, never invent trades or block exits
 
 # --- Integrations ---------------------------------------------------------
 cmc:

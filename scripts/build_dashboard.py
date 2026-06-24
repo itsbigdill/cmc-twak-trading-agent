@@ -62,6 +62,21 @@ def _llm_provider():
     return None
 
 
+def _llm_status(cfg):
+    """Truthful dashboard label for the AI layer.
+
+    The bot may still use deterministic CMC/x402 signals with no AI key. Do not
+    show "Gemini live" unless a key is present AND the review gate is enabled.
+    """
+    prov = _llm_provider()
+    review_enabled = bool(prov and (cfg.get("llm") or {}).get("second_gate"))
+    if review_enabled:
+        return {"provider": prov, "label": f"{prov} review",
+                "status": "active veto", "active": True}
+    return {"provider": prov, "label": "rule-based",
+            "status": "AI inactive", "active": False}
+
+
 def _twak(args):
     try:
         out = subprocess.run(["twak", *args, "--json"], capture_output=True, text=True,
@@ -263,7 +278,7 @@ def build_data(with_wallet=True, with_market=True):
     kill = cfg["risk"]["drawdown_kill_pct"]
     posture = (cfg.get("decision", {}).get("strategy_label") or
                ("Aggressive" if kill >= 0.24 else "Balanced" if kill >= 0.18 else "Defensive"))
-    prov = _llm_provider()
+    llm_status = _llm_status(cfg)
     x402_rows = [r for r in rows if r.get("kind") == "x402"]
     latest_x402 = x402_rows[-1] if x402_rows else {}
     latest_boosts = latest_x402.get("token_boosts") or {}
@@ -278,7 +293,10 @@ def build_data(with_wallet=True, with_market=True):
     return {
         "address": cfg["twak"]["agent_address"], "agent_id": cfg.get("bnb_sdk", {}).get("agent_id", ""),
         "live": live, "mode": mode, "generated_ts": int(time.time()),
-        "llm": prov or "rule-based", "posture": posture,
+        "llm": llm_status["label"],
+        "llm_status": llm_status["status"],
+        "llm_active": llm_status["active"],
+        "posture": posture,
         "portfolio": portfolio,
         "market": market,
         "track": track, "track_source": track_source,
@@ -586,7 +604,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 </div>
 
 <div class="card" id="rcard">
-  <div class="ph">Agent reasoning <span>🧠 Gemini · live</span></div>
+  <div class="ph">Agent reasoning <span id="llmstatus"></span></div>
   <div id="reason"></div>
 </div>
 
@@ -622,6 +640,7 @@ const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#f
 $('mode').textContent={live:'LIVE',paper:'LIVE',dry_run:'ARMED'}[D.mode]||'ARMED';
 const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
 $('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago · Miami '+fmtTime(D.generated_ts);
+$('llmstatus').textContent=`🧠 ${D.llm} · ${D.llm_status}`;
 $('chips').innerHTML=[`<span class="chip on">🟢 registered</span>`,
  `<span class="chip">ERC-8004 <b>#${D.agent_id}</b></span>`,
  `<span class="chip">🧠 <b>${D.llm}</b></span>`,
@@ -695,7 +714,7 @@ if(mk){const[col,bg,nm]=REG[mk.regime]||REG.chop;
    <span class="sc" style="color:${c}">${p?'+':''}${l.score.toFixed(2)}</span></div>`;}).join('');
 }else $('mcard').style.display='none';
 
-// agent reasoning (Gemini) — what it decided and WHY
+// agent reasoning — what deterministic strategy / AI review decided and WHY
 if(D.reasoning&&D.reasoning.length){
  $('reason').innerHTML=D.reasoning.map(r=>{const a=r.action||'';
   const c=a==='buy'?'var(--g)':(a==='sell'||a==='close')?'var(--b)':'var(--mut)';

@@ -15,25 +15,26 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass, field
 
 from . import llm
 from .signal_engine import Regime, TokenSignal
 
 SYSTEM_PROMPT = """\
-You are the decision component of an autonomous trading agent on BNB Smart Chain.
-You do NOT execute trades or compute prices — you weigh already-computed signals
-and return a structured decision.
+You are the review/veto layer of an autonomous trading agent on BNB Smart Chain.
+You do NOT choose new trades, execute trades, or compute prices. The deterministic
+strategy already produced candidate actions. Your only job is risk review.
 
 RULES:
-1. Respect risk_limits. NEVER propose a size_pct that violates max_position_pct.
-2. If daily_loss_remaining_pct is near zero, only propose hold/close.
-3. This is a rank-by-return tournament with a hard drawdown DQ: be decisive when
-   the portfolio is healthy, but de-risk immediately near the line. Never all-in.
-4. size_pct is a fraction of cash_usd, not of total_equity.
-5. SPOT-ONLY execution (no perps/shorts/leverage). Allowed actions: buy, sell,
-   hold, close. In a downtrend use "close"/"sell" (move to cash), NOT "short".
-6. confidence < 0.55 → action = "hold".
-7. Always give a short rationale, IN ENGLISH, citing the concrete signals.
+1. Review ONLY the provided deterministic candidate decisions.
+2. NEVER introduce a new token or action.
+3. NEVER increase size_pct or confidence. You may only approve unchanged,
+   reduce size_pct/confidence, or veto by omitting the candidate / returning hold.
+4. NEVER veto de-risking actions: close, sell, trim.
+5. For buys, check late chase, falling knife, weak route/liquidity, holder/news risk,
+   and whether 1h/24h/7d momentum is already overextended.
+6. This is a rank-by-return tournament with a hard drawdown DQ. Avoid needless churn.
+7. Always give a short rationale, IN ENGLISH, citing concrete signals.
 
 OUTPUT — EXACTLY this JSON, no markdown:
 {"decisions":[{"token":"CAKE","action":"buy|sell|hold|close","size_pct":0.0,
@@ -41,6 +42,57 @@ OUTPUT — EXACTLY this JSON, no markdown:
 """
 
 _VALID_ACTIONS = {"buy", "sell", "short", "hold", "close", "trim"}
+
+
+@dataclass(frozen=True)
+class TradeIntent:
+    """Internal strategy intent before executor/risk-gate validation.
+
+    Keeping the intent shape explicit makes it harder for ranking, sizing, exit,
+    and AI-review logic to silently mutate each other. The public contract is
+    still the plain decision dict returned by ``as_decision``.
+    """
+
+    token: str
+    action: str
+    size_pct: float = 0.0
+    confidence: float = 0.0
+    rationale: str = ""
+    size_usd: float | None = None
+
+    def as_decision(self) -> dict:
+        out = {
+            "token": self.token,
+            "action": self.action,
+            "size_pct": round(max(0.0, min(1.0, float(self.size_pct))), 4),
+            "confidence": round(max(0.0, min(1.0, float(self.confidence))), 4),
+            "rationale": self.rationale,
+        }
+        if self.size_usd is not None:
+            out["size_usd"] = round(max(0.0, float(self.size_usd)), 2)
+        return out
+
+
+@dataclass
+class StrategyState:
+    """One tick's deterministic strategy state.
+
+    This is intentionally narrow and serialisable-ish: the agent can later expose
+    these fields in debug traces without scraping closure-local variables from
+    the monolithic rotation function.
+    """
+
+    candidates: list[TokenSignal]
+    held: set[str]
+    regime: Regime
+    quality: dict[str, float] = field(default_factory=dict)
+    ranked: list[TokenSignal] = field(default_factory=list)
+    validated: set[str] = field(default_factory=set)
+    eligible: list[str] = field(default_factory=list)
+    targets: list[str] = field(default_factory=list)
+    gross: float = 0.0
+    target_value: float = 0.0
+    top5_active: bool = False
 
 
 def runtime_validated_token(cfg: dict, token: str, snapshot: dict | None = None) -> bool:
@@ -154,6 +206,179 @@ class RuleBasedDecider:
             elif held:
                 decisions.append(_dec(t, "close", 0.0, conf, "bearish signal, no shorting"))
         return decisions
+
+
+class CandidateRanker:
+    """Builds the executable candidate set and cross-sectional quality ranking."""
+
+    def __init__(self, strategy: "RotationDecider"):
+        self.strategy = strategy
+
+    def build_state(self, snapshot: dict, signals: dict[str, TokenSignal],
+                    portfolio: dict) -> StrategyState | None:
+        buyable = tradeable_buy_tokens(self.strategy.cfg)
+        held = {t for t, q in portfolio["positions"].items() if q > 0}
+        candidates = [s for s in signals.values() if s.token in buyable or s.token in held]
+        if not candidates:
+            return None
+        regime = candidates[0].regime
+        signal_tokens = {s.token for s in candidates}
+        held &= signal_tokens
+        quality = self.strategy._quality_scores(candidates, snapshot)
+        ranked = sorted(candidates, key=lambda s: quality[s.token], reverse=True)
+        validated = {s.token for s in candidates
+                     if runtime_validated_token(self.strategy.cfg, s.token, snapshot)}
+        return StrategyState(candidates=candidates, held=held, regime=regime,
+                             quality=quality, ranked=ranked, validated=validated)
+
+
+class EntryGate:
+    """Owns entry confirmation and late-chase/falling-knife filters."""
+
+    def __init__(self, strategy: "RotationDecider"):
+        self.strategy = strategy
+
+    def confirmed(self, signal: TokenSignal, threshold: float, held: set[str],
+                  risk_limits: dict) -> bool:
+        confirmation = self.strategy.cfg.get("decision", {}).get("signal_confirmation", {})
+        immediate = float(confirmation.get("immediate_score", 0.40))
+        required_ticks = int(confirmation.get("required_ticks", 2))
+        streaks = risk_limits.get("signal_streaks", {})
+        return (signal.token in held or
+                signal.score >= immediate or
+                (signal.score > threshold
+                 and int(streaks.get(signal.token, 0)) >= required_ticks))
+
+    def allows(self, signal: TokenSignal, state: StrategyState,
+               snapshot: dict, risk_limits: dict) -> bool:
+        if signal.token in state.held:
+            return True
+        threshold = (self.strategy.down_min_mom
+                     if state.regime is Regime.TREND_DOWN else self.strategy.min_mom)
+        if signal.token not in state.validated or signal.score <= threshold:
+            return False
+        fresh, _ = self.strategy._entry_classification(signal, state.regime,
+                                                       snapshot, state.quality)
+        return fresh and self.confirmed(signal, threshold, state.held, risk_limits)
+
+    def kind(self, signal: TokenSignal, state: StrategyState, snapshot: dict) -> str:
+        return self.strategy._entry_classification(signal, state.regime,
+                                                   snapshot, state.quality)[1]
+
+
+class ExitGate:
+    """Owns held-token health exits and de-risking reasons."""
+
+    def __init__(self, strategy: "RotationDecider"):
+        self.strategy = strategy
+
+    def reason(self, signal: TokenSignal | None, state: StrategyState,
+               snapshot: dict, portfolio: dict) -> str | None:
+        if signal is None:
+            return None
+        return self.strategy._held_exit_reason(signal, state.regime, snapshot,
+                                               state.quality, portfolio)
+
+    def healthy(self, signal: TokenSignal | None, state: StrategyState,
+                snapshot: dict, portfolio: dict) -> bool:
+        return self.reason(signal, state, snapshot, portfolio) is None
+
+
+class SizingPolicy:
+    """Owns gross exposure, rebalance, micro-profit and new-entry sizing."""
+
+    def __init__(self, strategy: "RotationDecider"):
+        self.strategy = strategy
+
+    def annotate_state(self, state: StrategyState, signals: dict[str, TokenSignal],
+                       portfolio: dict, risk_limits: dict, snapshot: dict) -> StrategyState:
+        rank = risk_limits.get("leaderboard_rank")
+        lb_ret = risk_limits.get("leaderboard_return_pct")
+        exec_ret = float(risk_limits.get("executable_return_pct") or 0.0)
+        mark_gap = abs(float(lb_ret) - exec_ret) if lb_ret is not None else float("inf")
+        state.top5_active = bool(rank and rank <= 5 and exec_ret >= 0
+                                 and mark_gap <= self.strategy.max_rank_mark_divergence)
+        state.gross = (self.strategy.top5_gross if state.top5_active
+                       else self.strategy._catchup_gross(state.targets, signals,
+                                                         risk_limits, snapshot,
+                                                         state.quality))
+        state.target_value = (portfolio["total_equity_usd"] * state.gross
+                              / max(len(state.targets), 1))
+        return state
+
+    def trim_intent(self, token: str, state: StrategyState, portfolio: dict) -> TradeIntent | None:
+        current = portfolio.get("position_values", {}).get(token, 0.0)
+        excess = current - state.target_value
+        pnl = self.strategy._held_pnl(token, portfolio)
+        if (token in state.held and pnl >= self.strategy.micro_profit_take_pct
+                and current * self.strategy.micro_profit_sell_fraction
+                >= self.strategy.min_micro_profit_sell_usd):
+            return TradeIntent(
+                token=token, action="trim", size_usd=current * self.strategy.micro_profit_sell_fraction,
+                confidence=1.0,
+                rationale=(f"micro profit take; pnl={pnl:.3f}, "
+                           f"sell_fraction={self.strategy.micro_profit_sell_fraction:.2f}"),
+            )
+        min_rebalance = float(self.strategy.cfg.get("decision", {}).get("min_rebalance_usd", 1.0))
+        if token in state.held and excess >= min_rebalance:
+            return TradeIntent(
+                token=token, action="trim", size_usd=excess, confidence=1.0,
+                rationale=f"rebalance to target; top5={state.top5_active}, excess=${excess:.2f}",
+            )
+        return None
+
+    def buy_intent(self, signal: TokenSignal, state: StrategyState, snapshot: dict,
+                   portfolio: dict) -> TradeIntent | None:
+        cash = max(portfolio["cash_usd"], 0.0)
+        needed = max(0.0, state.target_value
+                     - portfolio.get("position_values", {}).get(signal.token, 0.0))
+        size_pct = needed / cash if cash > 0 else 0.0
+        if size_pct <= 0:
+            return None
+        conf = min(0.95, 0.55 + abs(signal.score) / 2)
+        entry_kind = self.strategy.entry_gate.kind(signal, state, snapshot)
+        return TradeIntent(
+            token=signal.token,
+            action="buy",
+            size_pct=size_pct,
+            confidence=conf,
+            rationale=(f"rotate in: {entry_kind}, quality={state.quality[signal.token]:.3f}, "
+                       f"signal={signal.score} ({state.regime.value}), gross={state.gross:.2f}"),
+        )
+
+
+class AntiChurnPolicy:
+    """Owns target hysteresis and recently-exited re-entry cooldown."""
+
+    def __init__(self, strategy: "RotationDecider"):
+        self.strategy = strategy
+
+    def apply_target_hysteresis(self, state: StrategyState,
+                                signals: dict[str, TokenSignal],
+                                snapshot: dict, portfolio: dict) -> None:
+        for token in state.held:
+            if token not in state.eligible or token in state.targets:
+                continue
+            held_signal = signals.get(token)
+            if held_signal is None:
+                continue
+            if not self.strategy.exit_gate.healthy(held_signal, state, snapshot, portfolio):
+                continue
+            if len(state.targets) < self.strategy._target_limit(state.regime):
+                state.targets.append(token)
+                continue
+            weakest = min(state.targets, key=lambda t: state.quality[t])
+            hurdle = self.strategy._rotation_hurdle_for_held(token, state.regime, portfolio)
+            if state.quality[weakest] - state.quality[token] < hurdle:
+                state.targets[state.targets.index(weakest)] = token
+
+    def can_reenter(self, token: str, portfolio: dict) -> bool:
+        persisted_exited_at = portfolio.get("rotation_exited_at", {}) or {}
+        last_exit = max(
+            float(self.strategy._exited_at.get(token, -1e18) or -1e18),
+            float(persisted_exited_at.get(token, -1e18) or -1e18),
+        )
+        return self.strategy._now - last_exit >= self.strategy.reentry_cooldown_sec
 
 
 # --- Rotation decider (cross-sectional momentum) -------------------------------
@@ -278,6 +503,14 @@ class RotationDecider:
         self.min_micro_profit_sell_usd = float(exit_cfg.get("min_micro_profit_sell_usd", 1.0))
         self._now = 0.0                      # set by process_tick each tick (now_ts)
         self._exited_at: dict[str, float] = {}
+        self.ranker = CandidateRanker(self)
+        self.entry_gate = EntryGate(self)
+        self.exit_gate = ExitGate(self)
+        self.sizing = SizingPolicy(self)
+        self.anti_churn = AntiChurnPolicy(self)
+
+    def _target_limit(self, regime: Regime) -> int:
+        return self.down_k if regime is Regime.TREND_DOWN else self.k
 
     def _needs_catchup(self, risk_limits: dict) -> bool:
         rank = risk_limits.get("leaderboard_rank")
@@ -546,141 +779,69 @@ class RotationDecider:
         return None
 
     def decide(self, snapshot, signals: dict[str, TokenSignal], portfolio, risk_limits):
-        buyable = tradeable_buy_tokens(self.cfg)
-        held = {t for t, q in portfolio["positions"].items() if q > 0}
-        # Buy candidates must be in the execution-validated buy universe.  Held
-        # tokens are also considered so the strategy can make an explicit
-        # hold/trim/close decision even if a name later leaves deny_buy or the
-        # dynamic universe.
-        cand = [s for s in signals.values() if s.token in buyable or s.token in held]
-        if not cand:
+        state = self.ranker.build_state(snapshot, signals, portfolio)
+        if state is None:
             return []
-        regime = cand[0].regime
-        held = {t for t in held if t in {s.token for s in cand}}
 
-        if regime is Regime.CHOP:
+        if state.regime is Regime.CHOP:
             return []                          # hold current; stops still run upstream
 
-        quality = self._quality_scores(cand, snapshot)
-        ranked = sorted(cand, key=lambda s: quality[s.token], reverse=True)
-        confirmation = self.cfg.get("decision", {}).get("signal_confirmation", {})
-        immediate = float(confirmation.get("immediate_score", 0.40))
-        required_ticks = int(confirmation.get("required_ticks", 2))
-        streaks = risk_limits.get("signal_streaks", {})
-        validated = {s.token for s in cand
-                     if runtime_validated_token(self.cfg, s.token, snapshot)}
-
-        def confirmed(s, threshold):
-            return (s.token in held or
-                    (s.score >= immediate) or
-                    (s.score > threshold and int(streaks.get(s.token, 0)) >= required_ticks))
-
-        def fresh_entry(s) -> bool:
-            return self._entry_classification(s, regime, snapshot, quality)[0]
-
-        def held_healthy(s) -> bool:
-            return self._held_exit_reason(s, regime, snapshot, quality, portfolio) is None
-
-        def eligible_target(s, threshold):
-            if s.token in held:
+        def eligible_target(s):
+            if s.token in state.held:
                 # Held-token health rule: do not keep a decayed position just
                 # because no new token is compelling.  This is strategy, not a
                 # manual call: score below the configured floor exits to cash.
-                return held_healthy(s)
+                return self.exit_gate.healthy(s, state, snapshot, portfolio)
             # New entries/rotate-ins require durable execution validation before
             # they can become targets.  High CMC momentum alone cannot bypass it.
-            return (s.token in validated and s.score > threshold
-                    and confirmed(s, threshold)
-                    and fresh_entry(s))
+            return self.entry_gate.allows(s, state, snapshot, risk_limits)
 
-        if regime is Regime.TREND_DOWN:         # only the strongest counter-trend names
-            eligible = [s.token for s in ranked if eligible_target(s, self.down_min_mom)]
-            limit = self.down_k
-        else:
-            eligible = [s.token for s in ranked if eligible_target(s, self.min_mom)]
-            limit = self.k
-        targets = eligible[:limit]
+        state.eligible = [s.token for s in state.ranked if eligible_target(s)]
+        state.targets = state.eligible[:self._target_limit(state.regime)]
 
         # Hysteresis based on opportunity cost: keep a valid held name unless a
         # challenger is materially better after spread/risk penalties.
-        for token in held:
-            if token not in eligible or token in targets:
-                continue
-            held_signal = signals.get(token)
-            if held_signal is None or not held_healthy(held_signal):
-                continue
-            if len(targets) < limit:
-                targets.append(token)
-                continue
-            weakest = min(targets, key=lambda t: quality[t])
-            hurdle = self._rotation_hurdle_for_held(token, regime, portfolio)
-            if quality[weakest] - quality[token] < hurdle:
-                targets[targets.index(weakest)] = token
+        self.anti_churn.apply_target_hysteresis(state, signals, snapshot, portfolio)
 
         decisions = []
-        for t in held:                         # exit names no longer targeted
-            if t not in targets:
+        for t in state.held:                   # exit names no longer targeted
+            if t not in state.targets:
                 self._exited_at[t] = self._now   # arm the re-entry cooldown
                 held_signal = signals.get(t)
-                reason = (self._held_exit_reason(held_signal, regime, snapshot, quality, portfolio)
-                          if held_signal else None)
-                decisions.append(_dec(t, "close", 0.0, 0.78 if reason else 0.7,
-                                      reason or f"rotate out ({regime.value})"))
-        rank = risk_limits.get("leaderboard_rank")
-        lb_ret = risk_limits.get("leaderboard_return_pct")
-        exec_ret = float(risk_limits.get("executable_return_pct") or 0.0)
-        mark_gap = abs(float(lb_ret) - exec_ret) if lb_ret is not None else float("inf")
-        top5_active = bool(rank and rank <= 5 and exec_ret >= 0
-                           and mark_gap <= self.max_rank_mark_divergence)
-        gross = (self.top5_gross if top5_active
-                 else self._catchup_gross(targets, signals, risk_limits, snapshot, quality))
-        target_value = portfolio["total_equity_usd"] * gross / max(len(targets), 1)
-        cash = max(portfolio["cash_usd"], 0.0)
-        min_rebalance = float(self.cfg.get("decision", {}).get("min_rebalance_usd", 1.0))
-        for token in targets:
-            current = portfolio.get("position_values", {}).get(token, 0.0)
-            excess = current - target_value
-            pnl = self._held_pnl(token, portfolio)
-            if (token in held and pnl >= self.micro_profit_take_pct
-                    and current * self.micro_profit_sell_fraction >= self.min_micro_profit_sell_usd):
-                decisions.append({"token": token, "action": "trim", "size_pct": 0.0,
-                                  "size_usd": round(current * self.micro_profit_sell_fraction, 2),
-                                  "confidence": 1.0,
-                                  "rationale": f"micro profit take; pnl={pnl:.3f}, "
-                                               f"sell_fraction={self.micro_profit_sell_fraction:.2f}"})
-                continue
-            if token in held and excess >= min_rebalance:
-                decisions.append({"token": token, "action": "trim", "size_pct": 0.0,
-                                  "size_usd": round(excess, 2), "confidence": 1.0,
-                                  "rationale": f"rebalance to target; top5={top5_active}, "
-                                               f"excess=${excess:.2f}"})
-        for s in ranked:                       # enter/keep targets
-            if s.token in targets and s.token not in held:
+                reason = self.exit_gate.reason(held_signal, state, snapshot, portfolio)
+                decisions.append(TradeIntent(
+                    token=t,
+                    action="close",
+                    confidence=0.78 if reason else 0.7,
+                    rationale=reason or f"rotate out ({state.regime.value})",
+                ).as_decision())
+
+        self.sizing.annotate_state(state, signals, portfolio, risk_limits, snapshot)
+        for token in state.targets:
+            intent = self.sizing.trim_intent(token, state, portfolio)
+            if intent:
+                decisions.append(intent.as_decision())
+
+        for s in state.ranked:                 # enter/keep targets
+            if s.token in state.targets and s.token not in state.held:
                 # hysteresis: skip names we rotated out of within the cooldown (anti-churn)
-                persisted_exited_at = portfolio.get("rotation_exited_at", {}) or {}
-                last_exit = max(
-                    float(self._exited_at.get(s.token, -1e18) or -1e18),
-                    float(persisted_exited_at.get(s.token, -1e18) or -1e18),
-                )
-                if self._now - last_exit < self.reentry_cooldown_sec:
+                if not self.anti_churn.can_reenter(s.token, portfolio):
                     continue
-                needed = max(0.0, target_value - portfolio.get("position_values", {}).get(s.token, 0.0))
-                size_pct = needed / cash if cash > 0 else 0.0
-                if size_pct <= 0:
-                    continue
-                conf = min(0.95, 0.55 + abs(s.score) / 2)
-                _, entry_kind = self._entry_classification(s, regime, snapshot, quality)
-                decisions.append(_dec(s.token, "buy", size_pct, conf,
-                                      f"rotate in: {entry_kind}, quality={quality[s.token]:.3f}, "
-                                      f"signal={s.score} ({regime.value}), gross={gross:.2f}"))
+                intent = self.sizing.buy_intent(s, state, snapshot, portfolio)
+                if intent:
+                    decisions.append(intent.as_decision())
         return decisions
 
 
 # --- LLM decider (provider-agnostic: Gemini or Claude) -------------------------
 class LLMDecider:
-    """Provider-neutral LLM decision layer. Weighs the already-computed signals
-    and may override the deterministic decider. Uses whichever LLM key is present
-    (see agent.llm); on ANY failure it falls back so the live loop never stalls."""
+    """Provider-neutral AI review layer.
+
+    Gemini/Claude can veto or shrink deterministic buy candidates after reviewing
+    late-chase/falling-knife/news/liquidity risk. It cannot invent actions, cannot
+    increase size, and cannot block close/sell/trim exits. On ANY failure it falls
+    back so the live loop never stalls.
+    """
 
     def __init__(self, cfg: dict, fallback=None):
         self.cfg = cfg
@@ -691,14 +852,25 @@ class LLMDecider:
         candidates = self.fallback.decide(snapshot, signals, portfolio, risk_limits)
         if not self.cfg.get("llm", {}).get("second_gate", False) or not candidates:
             return candidates
+        exits = [d for d in candidates if d.get("action") in ("close", "sell", "trim")]
+        reviewable = [d for d in candidates if d.get("action") not in ("close", "sell", "trim")][:5]
+        if not reviewable:
+            return candidates
         payload = build_snapshot_payload(snapshot, signals, portfolio, risk_limits)
+        focused_tokens = {d["token"] for d in reviewable}
+        focused_payload = {
+            **payload,
+            "tokens": {t: v for t, v in payload["tokens"].items() if t in focused_tokens},
+        }
         user = (
-            "Current market snapshot:\n"
-            f"{json.dumps(payload, ensure_ascii=False)}\n\n"
-            f"Deterministic candidate decisions:\n{json.dumps(candidates)}\n\n"
-            "Act only as a risk gate. Approve a candidate by returning the exact same "
-            "token and action, or veto it with hold. Never introduce a new token/action. "
-            "JSON only."
+            "Focused market snapshot for deterministic top candidates:\n"
+            f"{json.dumps(focused_payload, ensure_ascii=False)}\n\n"
+            f"Reviewable deterministic candidates, max 5:\n{json.dumps(reviewable)}\n\n"
+            f"De-risking candidates that MUST pass through unchanged:\n{json.dumps(exits)}\n\n"
+            "Act only as a veto/review gate. Approve a buy by returning the exact same "
+            "token and action with size_pct <= candidate size_pct and confidence <= candidate "
+            "confidence. Reduce size if risk is elevated. Veto by omitting the candidate or "
+            "returning hold. Never introduce a new token/action. JSON only."
         )
         text = llm.complete(user, system=SYSTEM_PROMPT,
                             max_tokens=self.cfg["llm"]["max_tokens"])
@@ -716,9 +888,15 @@ class LLMDecider:
                     gate = approved.get((candidate["token"], candidate["action"]))
                     if gate:
                         keep = dict(candidate)
+                        keep["size_pct"] = min(float(candidate.get("size_pct", 0.0)),
+                                               float(gate.get("size_pct", 0.0)))
                         keep["confidence"] = min(candidate["confidence"], gate["confidence"])
-                        keep["rationale"] += f"; LLM gate: {gate['rationale']}"
-                        out.append(keep)
+                        if keep["size_pct"] > 0:
+                            keep["rationale"] += f"; AI review: {gate['rationale']}"
+                            out.append(keep)
+                        else:
+                            # Explicit size=0 is treated as a veto.
+                            continue
                 return out
             except Exception:
                 pass  # logged by caller; fall through to deterministic decider
