@@ -565,6 +565,7 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         "leaderboard_drawdown_pct": leaderboard.get("drawdown_pct"),
         "leaderboard_top5_return_pct": leaderboard.get("top5_return_pct"),
         "executable_return_pct": executable_return_pct,
+        "current_drawdown_pct": state.current_drawdown(equity) * 100.0,
         "signal_streaks": dict(state.signal_streaks),
     }
 

@@ -88,7 +88,8 @@ def test_rotation_hurdle_keeps_nearly_equal_held_name(cfg):
 
 def test_rotation_targets_sixty_percent_gross_across_two_names(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"], "rotation_top_k": 2,
-                               "target_gross_exposure_pct": 0.60}}
+                               "target_gross_exposure_pct": 0.60,
+                               "dynamic_sizing": {"enabled": False}}}
     d = RotationDecider(cfg)
     signals = {"ETH": _sig("ETH", 0.8, Regime.TREND_UP),
                "CAKE": _sig("CAKE", 0.7, Regime.TREND_UP)}
@@ -100,7 +101,8 @@ def test_rotation_targets_sixty_percent_gross_across_two_names(cfg):
 
 def test_divergent_leaderboard_mark_does_not_trigger_top5_mode(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"], "rotation_top_k": 2,
-                               "target_gross_exposure_pct": 0.60}}
+                               "target_gross_exposure_pct": 0.60,
+                               "dynamic_sizing": {"enabled": False}}}
     d = RotationDecider(cfg)
     signals = {"ETH": _sig("ETH", 0.8, Regime.TREND_UP),
                "CAKE": _sig("CAKE", 0.7, Regime.TREND_UP)}
@@ -129,6 +131,38 @@ def test_top5_mode_emits_trim_for_excess_existing_position(cfg):
 def test_medium_signal_requires_configured_consecutive_ticks(cfg):
     d = RotationDecider(cfg)
     signals = {"ETH": _sig("ETH", 0.40, Regime.TREND_UP)}
-    assert d.decide({}, signals, _portfolio(), {"signal_streaks": {"ETH": 2}}) == []
+    assert d.decide({}, signals, _portfolio(), {"signal_streaks": {"ETH": 1}}) == []
     assert any(x["action"] == "buy" for x in
-               d.decide({}, signals, _portfolio(), {"signal_streaks": {"ETH": 3}}))
+               d.decide({}, signals, _portfolio(), {"signal_streaks": {"ETH": 2}}))
+
+
+def test_dynamic_sizing_uses_small_gross_for_borderline_comeback(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_min_momentum": 0.28,
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.30,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55}}}
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.30, Regime.TREND_DOWN)}
+    buys = [x for x in d.decide({}, signals, _portfolio(),
+                                {"signal_streaks": {"ETH": 2}}) if x["action"] == "buy"]
+    assert buys[0]["size_pct"] == pytest.approx(0.30)
+
+
+def test_dynamic_sizing_uses_full_gross_for_strong_comeback(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_min_momentum": 0.28,
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.30,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55}}}
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.42, Regime.TREND_DOWN)}
+    buys = [x for x in d.decide({}, signals, _portfolio(),
+                                {"signal_streaks": {"ETH": 1}}) if x["action"] == "buy"]
+    assert buys[0]["size_pct"] == pytest.approx(0.55)

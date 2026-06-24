@@ -119,14 +119,14 @@ regime:
 # --- Decision policy (F3) -------------------------------------------------
 decision:
   policy: rotation          # rotation | threshold
-  strategy_label: Sniper comeback v1
+  strategy_label: Comeback v2
   rotation_top_k: 1         # one best executable candidate; avoid five mediocre wounds
   rotation_min_momentum: 0.30
   rotation_downtrend_topk: 1
                                    # name (NOT 100% cash: a cash week scores ~0% in a rank-by-
                                    # return contest). Backtest: this BEAT pure-cash in the bear
                                    # year (-9.7% vs -12.6%). Stops + daily pause + kill cap risk.
-  rotation_downtrend_min_momentum: 0.38
+  rotation_downtrend_min_momentum: 0.28
   rotation_reentry_cooldown_hours: 4     # hysteresis: after rotating OUT of a name, wait this
                                          # many HOURS before rotating back IN. Time-based, so it is
                                          # consistent in live and backtest. Kills the buy->sell->buy
@@ -134,14 +134,27 @@ decision:
                                          # for half a day (12h backtested slightly worse on the
                                          # short week sample; 4h is the gentler middle).
   rotation_score_hurdle: 0.18            # challenger must beat a held name after costs/risk
-  target_gross_exposure_pct: 0.55        # catch-up mode while outside the top five
+  target_gross_exposure_pct: 0.55        # maximum catch-up mode exposure outside the top five
+  dynamic_sizing:
+    enabled: true
+    # Asset-agnostic comeback sizing. Lowering the downtrend gate is only safe if
+    # borderline signals get smaller size; strong signals can still use the full
+    # catch-up budget. All entries still require TWAK route validation + risk gate.
+    low_score: 0.28
+    mid_score: 0.32
+    high_score: 0.38
+    low_exposure_pct: 0.30
+    mid_exposure_pct: 0.40
+    high_exposure_pct: 0.55
+    stress_drawdown_pct: 0.18
+    stress_exposure_pct: 0.25
   top5_gross_exposure_pct: 0.05          # defend rank aggressively once inside top five
   top5_max_mark_divergence_pct: 10.0     # ignore an inflated board rank when it disagrees with exits
   min_rebalance_usd: 1.0
   signal_confirmation:
-    base_score: 0.36
-    immediate_score: 0.48                # very strong signals enter on one observation
-    required_ticks: 3                    # 0.36-0.48 requires three consecutive observations
+    base_score: 0.27
+    immediate_score: 0.42                # very strong signals enter on one observation
+    required_ticks: 2                    # 0.27-0.42 requires two consecutive observations
 
 profit_lock:
   enabled: true

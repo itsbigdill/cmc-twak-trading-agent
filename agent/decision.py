@@ -183,8 +183,50 @@ class RotationDecider:
         self.target_gross = float(d.get("target_gross_exposure_pct", 0.60))
         self.top5_gross = float(d.get("top5_gross_exposure_pct", 0.20))
         self.max_rank_mark_divergence = float(d.get("top5_max_mark_divergence_pct", 10.0))
+        ds = d.get("dynamic_sizing", {}) or {}
+        self.dynamic_sizing = bool(ds.get("enabled", False))
+        self.ds_low_score = float(ds.get("low_score", self.down_min_mom))
+        self.ds_mid_score = float(ds.get("mid_score", max(self.down_min_mom, 0.32)))
+        self.ds_high_score = float(ds.get("high_score", max(self.down_min_mom, 0.38)))
+        self.ds_low_gross = float(ds.get("low_exposure_pct", min(self.target_gross, 0.30)))
+        self.ds_mid_gross = float(ds.get("mid_exposure_pct", min(self.target_gross, 0.40)))
+        self.ds_high_gross = float(ds.get("high_exposure_pct", self.target_gross))
+        self.ds_stress_dd = float(ds.get("stress_drawdown_pct", 0.18))
+        self.ds_stress_gross = float(ds.get("stress_exposure_pct", min(self.target_gross, 0.25)))
         self._now = 0.0                      # set by process_tick each tick (now_ts)
         self._exited_at: dict[str, float] = {}
+
+    def _catchup_gross(self, targets: list[str], signals: dict[str, TokenSignal],
+                       risk_limits: dict) -> float:
+        """Score-scaled comeback exposure.
+
+        The bot must participate while behind, but a borderline downtrend signal
+        should not get the same 55% gross exposure as a clean breakout.  Hard
+        execution/risk guards still run after this sizing step.
+        """
+        if not self.dynamic_sizing or not targets:
+            return self.target_gross
+        best_score = max(float(signals[t].score) for t in targets if t in signals)
+        if best_score >= self.ds_high_score:
+            gross = self.ds_high_gross
+        elif best_score >= self.ds_mid_score:
+            gross = self.ds_mid_gross
+        else:
+            gross = self.ds_low_gross
+
+        dd_vals = []
+        for key in ("leaderboard_drawdown_pct", "current_drawdown_pct"):
+            v = risk_limits.get(key)
+            if v is None:
+                continue
+            try:
+                x = abs(float(v))
+            except (TypeError, ValueError):
+                continue
+            dd_vals.append(x / 100.0 if x > 1.0 else x)
+        if dd_vals and max(dd_vals) >= self.ds_stress_dd:
+            gross = min(gross, self.ds_stress_gross)
+        return min(self.target_gross, max(0.0, gross))
 
     def decide(self, snapshot, signals: dict[str, TokenSignal], portfolio, risk_limits):
         tradeable = tradeable_buy_tokens(self.cfg)
@@ -280,7 +322,7 @@ class RotationDecider:
         mark_gap = abs(float(lb_ret) - exec_ret) if lb_ret is not None else float("inf")
         top5_active = bool(rank and rank <= 5 and exec_ret >= 0
                            and mark_gap <= self.max_rank_mark_divergence)
-        gross = self.top5_gross if top5_active else self.target_gross
+        gross = self.top5_gross if top5_active else self._catchup_gross(targets, signals, risk_limits)
         target_value = portfolio["total_equity_usd"] * gross / max(len(targets), 1)
         cash = max(portfolio["cash_usd"], 0.0)
         min_rebalance = float(self.cfg.get("decision", {}).get("min_rebalance_usd", 1.0))
@@ -304,7 +346,7 @@ class RotationDecider:
                 conf = min(0.95, 0.55 + abs(s.score) / 2)
                 decisions.append(_dec(s.token, "buy", size_pct, conf,
                                       f"rotate in: quality={quality[s.token]:.3f}, "
-                                      f"signal={s.score} ({regime.value})"))
+                                      f"signal={s.score} ({regime.value}), gross={gross:.2f}"))
         return decisions
 
 
