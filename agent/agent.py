@@ -31,6 +31,142 @@ from .signal_engine import score_universe
 from .state import PortfolioState, make_order_id
 
 
+def _trace_token(token: str | None, signal=None, snapshot: dict | None = None,
+                 *, tradeable: set[str] | None = None,
+                 cfg: dict | None = None) -> dict | None:
+    """Compact, machine-readable token diagnostics for decision_trace.
+
+    This is intentionally generated inside the agent loop, not in the dashboard.
+    The dashboard may display it, but it must never invent it.
+    """
+    if not token:
+        return None
+    d = (snapshot or {}).get(token, {}) if snapshot else {}
+    meta = (cfg.get("universe_runtime", {}) if cfg else {}).get(token, {}) or {}
+    max_rt = float((cfg or {}).get("execution", {}).get(
+        "max_round_trip_loss_pct",
+        (cfg or {}).get("universe", {}).get("max_round_trip_loss_pct", 3.0),
+    ))
+    try:
+        rt_loss = float(d.get("round_trip_loss_pct", meta.get("round_trip_loss_pct", 999.0)))
+    except (TypeError, ValueError):
+        rt_loss = 999.0
+    risk_level = str(d.get("risk_level", meta.get("risk_level", "")) or "").lower()
+    history_bars = int(d.get("history_bars", meta.get("history_bars", 0)) or 0)
+    validated = bool(rt_loss <= max_rt and risk_level != "high" and history_bars > 0)
+    out = {
+        "token": token,
+        "score": getattr(signal, "score", None),
+        "tradeable": token in (tradeable or set()),
+        "validated": validated,
+        "round_trip_loss_pct": round(rt_loss, 4) if rt_loss < 999 else None,
+        "risk_level": risk_level or None,
+        "history_bars": history_bars or None,
+    }
+    if signal is not None:
+        out["components"] = getattr(signal, "components", {})
+        out["actionable"] = getattr(signal, "actionable", None)
+    for k in ("x402_token_score", "cmc_score", "cmc_rank", "cmc_volume_24h",
+              "cmc_pct_1h", "cmc_pct_24h", "cmc_pct_7d",
+              "token_risk_score", "return_6h", "return_24h"):
+        if k in d:
+            out[k] = d.get(k)
+    return out
+
+
+def _decision_trace(cfg, tick_id, snapshot, signals, portfolio, risk_limits,
+                    decisions, tradeable, *, risk_outcomes=None) -> dict:
+    """Build the internal causal trace for a tick.
+
+    The trace answers "why no trade?" and "why this trade?" using the same
+    config/signal objects the agent used. It is logged as JSONL for audit and
+    debugging; UI code should only read this artifact, not re-create reasoning.
+    """
+    ranked = sorted(signals.values(), key=lambda s: s.score, reverse=True)
+    trade_ranked = [s for s in ranked if s.token in tradeable]
+
+    def _validated(s):
+        t = _trace_token(s.token, s, snapshot, tradeable=tradeable, cfg=cfg)
+        return bool(t and t.get("validated"))
+
+    valid_ranked = [s for s in trade_ranked if _validated(s)]
+    regime = ranked[0].regime.value if ranked else None
+    if regime == "trend_down":
+        threshold_name = "rotation_downtrend_min_momentum"
+        threshold = float(cfg.get("decision", {}).get(threshold_name, 0.0))
+    elif regime == "trend_up":
+        threshold_name = "rotation_min_momentum"
+        threshold = float(cfg.get("decision", {}).get(threshold_name, 0.0))
+    elif regime == "chop":
+        threshold_name = "chop_no_new_entries"
+        threshold = None
+    else:
+        threshold_name = "no_signals"
+        threshold = None
+
+    best_for_gate = valid_ranked[0] if valid_ranked else (trade_ranked[0] if trade_ranked else None)
+    confirm = cfg.get("decision", {}).get("signal_confirmation", {})
+    immediate = float(confirm.get("immediate_score", 0.48))
+    required_ticks = int(confirm.get("required_ticks", 3))
+    streaks = risk_limits.get("signal_streaks", {})
+    streak = int(streaks.get(best_for_gate.token, 0)) if best_for_gate else 0
+    passed_threshold = (best_for_gate is not None and threshold is not None
+                        and best_for_gate.score > threshold)
+    confirmed = bool(best_for_gate and (best_for_gate.score >= immediate
+                     or streak >= required_ticks))
+
+    if decisions:
+        final_action = ",".join(f"{d.get('action')}:{d.get('token')}" for d in decisions)
+        reason = "candidate_decisions_emitted"
+    elif regime == "chop":
+        final_action, reason = "hold", "chop_regime_no_new_entries"
+    elif not ranked:
+        final_action, reason = "hold", "no_signals"
+    elif not trade_ranked:
+        final_action, reason = "hold", "no_tradeable_signal"
+    elif not valid_ranked:
+        final_action, reason = "hold", "no_runtime_validated_candidate"
+    elif not passed_threshold:
+        final_action, reason = "hold", f"best_validated_score_below_{threshold_name}"
+    elif not confirmed:
+        final_action, reason = "hold", "signal_confirmation_streak_not_met"
+    else:
+        # If we got here, the deterministic candidate was likely removed by an
+        # upstream hysteresis/rotation rule or the LLM second gate.
+        final_action, reason = "hold", "candidate_suppressed_by_rotation_or_llm_gate"
+
+    return {
+        "kind": "decision_trace",
+        "tick_id": tick_id,
+        "strategy": cfg.get("decision", {}).get("strategy_label"),
+        "regime": regime,
+        "portfolio": {
+            "cash_usd": round(float(portfolio.get("cash_usd", 0.0)), 6),
+            "total_equity_usd": round(float(portfolio.get("total_equity_usd", 0.0)), 6),
+            "positions": portfolio.get("positions", {}),
+        },
+        "gate": {
+            "name": threshold_name,
+            "required": threshold,
+            "actual": best_for_gate.score if best_for_gate else None,
+            "passed_threshold": passed_threshold,
+            "streak": streak,
+            "required_ticks": required_ticks,
+            "confirmed": confirmed,
+        },
+        "best_signal": _trace_token(ranked[0].token, ranked[0], snapshot,
+                                    tradeable=tradeable, cfg=cfg) if ranked else None,
+        "best_tradeable": _trace_token(trade_ranked[0].token, trade_ranked[0], snapshot,
+                                       tradeable=tradeable, cfg=cfg) if trade_ranked else None,
+        "best_validated": _trace_token(valid_ranked[0].token, valid_ranked[0], snapshot,
+                                       tradeable=tradeable, cfg=cfg) if valid_ranked else None,
+        "candidate_decisions": decisions,
+        "risk_outcomes": risk_outcomes or [],
+        "final_action": final_action,
+        "reason": reason,
+    }
+
+
 def load_config(path: str = "config.yaml") -> dict:
     with open(path) as f:
         cfg = yaml.safe_load(f)
@@ -437,17 +573,22 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     # deny_buy is entry-only and conditional: a quarantined token can buy again
     # only after UniverseManager records a successful executable round-trip.
     tradeable = tradeable_buy_tokens(cfg)
+    risk_outcomes = []
 
     for d in decisions:
         token = d["token"]
         log.event("decision", **d)
         # A hold is a deliberate no-op, NOT a blocked trade — don't log it as one.
         if d["action"] == "hold":
+            risk_outcomes.append({"token": token, "action": "hold", "approved": True,
+                                  "reason": "explicit_hold"})
             continue
         # Off-universe guard: only opening trades in tradeable tokens count.
         # (BTC/BNB are signal-only; their "buy" decisions are ignored here.)
         if d["action"] == "buy" and token not in tradeable:
             log.event("blocked", token=token, action="buy", reason="not_tradeable: off-universe")
+            risk_outcomes.append({"token": token, "action": "buy", "approved": False,
+                                  "reason": "not_tradeable: off-universe"})
             continue
         token_risk = snapshot.get(token, {}).get("token_risk_score", 0)  # TWAK fills live
         verdict = risk_gate.evaluate(
@@ -458,13 +599,21 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         )
         if not verdict.approved:
             log.event("blocked", token=token, action=d["action"], reason=verdict.reason)
+            risk_outcomes.append({"token": token, "action": d["action"], "approved": False,
+                                  "reason": verdict.reason})
             continue
+        risk_outcomes.append({"token": token, "action": d["action"], "approved": True,
+                              "reason": verdict.reason,
+                              "adjusted_size_usd": round(verdict.adjusted_size_usd, 6)})
 
         execution_size = (float(d.get("size_usd", 0.0)) if d["action"] == "trim"
                           else verdict.adjusted_size_usd)
         _exec_and_log(executor, state, cfg, tick_id, token, d["action"],
                       execution_size, prices.get(token, 0.0),
                       log, verdict.reason, now=now_ts)
+
+    log.write(_decision_trace(cfg, tick_id, snapshot, signals, portfolio, risk_limits,
+                              decisions, tradeable, risk_outcomes=risk_outcomes))
 
     # --- Guarantee the min-1-trade/day requirement during the UTC day -------
     # Off-list/zero-trade days don't count. Trigger from 18:00 UTC (~24 retry
