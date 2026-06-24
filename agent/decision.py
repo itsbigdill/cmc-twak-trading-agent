@@ -249,6 +249,11 @@ class RotationDecider:
         self.ds_hc_max_risk = float(ds.get("high_conviction_max_token_risk_score", 30.0))
         self.ds_hc_min_volume = float(ds.get("high_conviction_min_volume_24h_usd", 5_000_000))
         self.ds_hc_catchup_rank_above = int(ds.get("high_conviction_catchup_rank_above", 5))
+        self.ds_risk_adjusted = bool(ds.get("risk_adjusted_enabled", False))
+        self.ds_medium_risk_threshold = float(ds.get("medium_risk_threshold", 30.0))
+        self.ds_medium_risk_gross_cap = float(ds.get("medium_risk_gross_cap", 0.15))
+        self.ds_weak_cmc_threshold = float(ds.get("weak_cmc_threshold", 0.40))
+        self.ds_weak_cmc_gross_cap = float(ds.get("weak_cmc_gross_cap", 0.20))
         self.ds_stress_dd = float(ds.get("stress_drawdown_pct", 0.18))
         self.ds_stress_gross = float(ds.get("stress_exposure_pct", min(self.target_gross, 0.25)))
         exit_cfg = d.get("held_exit", {}) or {}
@@ -259,6 +264,7 @@ class RotationDecider:
             "floor_score_uptrend", max(0.0, self.min_mom - 0.05)))
         self.held_min_quality_down = float(exit_cfg.get("min_quality_downtrend", 0.0))
         self.held_min_return_6h_down = float(exit_cfg.get("min_return_6h_downtrend", -0.015))
+        self.held_min_hold_sec_down = float(exit_cfg.get("min_hold_seconds_downtrend", 0.0))
         self.held_stale_loss_pct = float(exit_cfg.get("stale_loss_pct", -0.006))
         self.held_stale_loss_min_r6 = float(exit_cfg.get("stale_loss_min_return_6h", -0.005))
         self.micro_profit_take_pct = float(exit_cfg.get("micro_profit_take_pct", 0.015))
@@ -359,6 +365,19 @@ class RotationDecider:
             gross = max(gross, self.ds_hc_gross)
         elif pullback_targets:
             gross = max(gross, self.pullback_gross)
+
+        if self.ds_risk_adjusted and not high_conviction_targets:
+            caps = []
+            for t in targets:
+                d = snapshot.get(t, {})
+                risk = float(d.get("token_risk_score", 100.0) or 100.0)
+                cmc = float(d.get("cmc_score", 0.0) or 0.0)
+                if risk > self.ds_medium_risk_threshold:
+                    caps.append(self.ds_medium_risk_gross_cap)
+                if cmc < self.ds_weak_cmc_threshold:
+                    caps.append(self.ds_weak_cmc_gross_cap)
+            if caps:
+                gross = min(gross, min(caps))
 
         dd_vals = []
         for key in ("leaderboard_drawdown_pct", "current_drawdown_pct"):
@@ -487,11 +506,14 @@ class RotationDecider:
             q = quality.get(token, 0.0)
             r6 = float(d.get("return_6h", 0.0) or 0.0)
             pnl = self._held_pnl(token, portfolio)
+            opened_ts = float(portfolio.get("position_opened_ts", {}).get(token, 0.0) or 0.0)
+            age_sec = self._now - opened_ts if opened_ts > 0 and self._now > 0 else float("inf")
             if q < self.held_min_quality_down:
                 return f"health exit: quality {q:.3f} < {self.held_min_quality_down:.3f}"
-            if r6 < self.held_min_return_6h_down:
+            if r6 < self.held_min_return_6h_down and age_sec >= self.held_min_hold_sec_down:
                 return f"health exit: 6h momentum {r6:.3f} < {self.held_min_return_6h_down:.3f}"
-            if pnl <= self.held_stale_loss_pct and r6 < self.held_stale_loss_min_r6:
+            if (pnl <= self.held_stale_loss_pct and r6 < self.held_stale_loss_min_r6
+                    and age_sec >= self.held_min_hold_sec_down):
                 return f"health exit: stale loss pnl={pnl:.3f}, r6={r6:.3f}"
         return None
 

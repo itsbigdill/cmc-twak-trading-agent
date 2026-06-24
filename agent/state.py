@@ -30,6 +30,7 @@ class Position:
     is_perp: bool = False
     peak_executable_price: float = 0.0
     profit_taken: bool = False
+    opened_ts: float = 0.0      # epoch seconds for entry-age aware health exits
 
 
 @dataclass

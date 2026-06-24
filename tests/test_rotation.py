@@ -171,6 +171,43 @@ def test_dynamic_sizing_uses_small_gross_for_borderline_comeback(cfg):
     assert buys[0]["size_pct"] == pytest.approx(0.30)
 
 
+def test_risk_adjusted_sizing_caps_medium_risk_recovery_scout(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_min_momentum": 0.28,
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.20,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55,
+                                                  "risk_adjusted_enabled": True,
+                                                  "medium_risk_threshold": 30,
+                                                  "medium_risk_gross_cap": 0.15,
+                                                  "weak_cmc_threshold": 0.40,
+                                                  "weak_cmc_gross_cap": 0.20}}}
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.34, Regime.TREND_DOWN)}
+    snap = _snap("ETH")
+    snap["ETH"].update({
+        "return_6h": 0.02,
+        "return_24h": 0.04,
+        "cmc_pct_1h": 0.0,
+        "cmc_pct_24h": 0.05,
+        "cmc_pct_7d": 0.20,
+        "cmc_volume_change_24h": 0.3,
+        "cmc_score": 0.20,
+        "x402_token_score": 0.36,
+        "token_risk_score": 45,
+        "round_trip_loss_pct": 1.4,
+        "distance_from_48h_high": -0.10,
+    })
+    buys = [x for x in d.decide(snap, signals, _portfolio(),
+                                {"signal_streaks": {"ETH": 4}})
+            if x["action"] == "buy"]
+    assert buys
+    assert buys[0]["size_pct"] == pytest.approx(0.15)
+
+
 def test_dynamic_sizing_uses_full_gross_for_strong_comeback(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_min_momentum": 0.28,
                                "dynamic_sizing": {"enabled": True,
@@ -185,6 +222,35 @@ def test_dynamic_sizing_uses_full_gross_for_strong_comeback(cfg):
     buys = [x for x in d.decide(_snap("ETH"), signals, _portfolio(),
                                 {"signal_streaks": {"ETH": 1}}) if x["action"] == "buy"]
     assert buys[0]["size_pct"] == pytest.approx(0.55)
+
+
+def test_fresh_downtrend_position_gets_6h_health_exit_grace(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "held_exit": {"enabled": True,
+                                             "floor_score_downtrend": 0.28,
+                                             "min_quality_downtrend": 0.0,
+                                             "min_return_6h_downtrend": -0.015,
+                                             "min_hold_seconds_downtrend": 900,
+                                             "stale_loss_pct": -0.006,
+                                             "stale_loss_min_return_6h": -0.005}}}
+    d = RotationDecider(cfg)
+    d._now = 1_000
+    signals = {"SAHARA": _sig("SAHARA", 0.34, Regime.TREND_DOWN)}
+    snap = _snap("SAHARA")
+    snap["SAHARA"].update({"return_6h": -0.018, "return_24h": 0.04,
+                           "cmc_score": 0.2, "token_risk_score": 45})
+    portfolio = _portfolio_with_marks(
+        {"SAHARA": 100.0},
+        values={"SAHARA": 10.0},
+        avg_prices={"SAHARA": 0.10},
+    )
+    portfolio["position_opened_ts"] = {"SAHARA": 500.0}
+    out = d.decide(snap, signals, portfolio, {"signal_streaks": {"SAHARA": 4}})
+    assert not any(x["token"] == "SAHARA" and x["action"] == "close" for x in out)
+
+    portfolio["position_opened_ts"] = {"SAHARA": 0.0}
+    out = d.decide(snap, signals, portfolio, {"signal_streaks": {"SAHARA": 4}})
+    assert any(x["token"] == "SAHARA" and x["action"] == "close" for x in out)
 
 
 def test_high_conviction_medium_signal_gets_full_catchup_size(cfg):

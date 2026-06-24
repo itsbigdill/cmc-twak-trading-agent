@@ -179,6 +179,7 @@ decision:
     floor_score_uptrend: 0.20
     min_quality_downtrend: 0.0
     min_return_6h_downtrend: -0.015
+    min_hold_seconds_downtrend: 900       # do not kill a fresh recovery scout on one noisy 5m tick
     stale_loss_pct: -0.006
     stale_loss_min_return_6h: -0.005
     micro_profit_take_pct: 0.015
@@ -193,7 +194,7 @@ decision:
     low_score: 0.28
     mid_score: 0.32
     high_score: 0.38
-    low_exposure_pct: 0.30
+    low_exposure_pct: 0.20
     mid_exposure_pct: 0.40
     high_exposure_pct: 0.55
     # Tournament catch-up override: a LAB-like setup should size as high
@@ -209,6 +210,11 @@ decision:
     high_conviction_max_token_risk_score: 30
     high_conviction_min_volume_24h_usd: 5000000
     high_conviction_catchup_rank_above: 5
+    risk_adjusted_enabled: true
+    medium_risk_threshold: 30
+    medium_risk_gross_cap: 0.15          # SAHARA-like: route valid, but CMC/news/risk not clean
+    weak_cmc_threshold: 0.40
+    weak_cmc_gross_cap: 0.20             # LAB-like recovery scout when CMC is not high-conviction
     stress_drawdown_pct: 0.18
     stress_exposure_pct: 0.25
   top5_gross_exposure_pct: 0.05          # defend rank aggressively once inside top five

@@ -67,7 +67,8 @@ class AmbiguousExecutionError(RuntimeError):
 
 
 # --- position bookkeeping (shared) --------------------------------------------
-def _apply_spot_buy(state: PortfolioState, token: str, size_usd: float, price: float):
+def _apply_spot_buy(state: PortfolioState, token: str, size_usd: float, price: float,
+                    opened_ts: float = 0.0):
     if price <= 0:
         raise RuntimeError(f"refusing buy {token}: non-positive fill price {price}")
     qty = size_usd / price
@@ -77,12 +78,15 @@ def _apply_spot_buy(state: PortfolioState, token: str, size_usd: float, price: f
     pos.qty = new_qty
     pos.is_perp = False
     pos.peak_executable_price = max(pos.peak_executable_price, price)
+    if opened_ts and pos.opened_ts <= 0:
+        pos.opened_ts = opened_ts
     state.positions[token] = pos
     state.cash_usd -= size_usd
 
 
 def _apply_live_buy(state: PortfolioState, token: str, spent: float,
-                    received: float, quote_balance: float) -> float:
+                    received: float, quote_balance: float,
+                    opened_ts: float = 0.0) -> float:
     if spent <= 0 or received <= 0:
         raise RuntimeError("confirmed buy produced no positive balance delta")
     fill_price = spent / received
@@ -93,6 +97,8 @@ def _apply_live_buy(state: PortfolioState, token: str, spent: float,
     pos.qty = new_qty
     pos.is_perp = False
     pos.peak_executable_price = max(pos.peak_executable_price, fill_price)
+    if opened_ts and pos.opened_ts <= 0:
+        pos.opened_ts = opened_ts
     state.positions[token] = pos
     state.cash_usd = quote_balance
     return fill_price
@@ -160,7 +166,8 @@ class MockExecutor:
 
         fill_price = price * (1 + self.slippage) if action in ("buy",) else price * (1 - self.slippage)
         if action == "buy":
-            _apply_spot_buy(state, token, size_usd, fill_price)
+            _apply_spot_buy(state, token, size_usd, fill_price,
+                            now if now is not None else time.time())
         elif action == "short":
             if not self.cfg["risk"].get("perps_enabled"):
                 log.event("unsupported_action", token=token, action="short",
@@ -497,7 +504,8 @@ class TwakExecutor:
         quote_balance_f = float(after_quote.amount)
         if action == "buy":
             fill_price = _apply_live_buy(
-                state, token, quote_f, qty_f, quote_balance_f
+                state, token, quote_f, qty_f, quote_balance_f,
+                now if now is not None else time.time()
             )
         else:
             fill_price = _apply_live_close(
