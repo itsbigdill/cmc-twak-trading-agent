@@ -265,35 +265,24 @@ class RotationDecider:
             gross = min(gross, self.ds_stress_gross)
         return min(self.target_gross, max(0.0, gross))
 
-    def decide(self, snapshot, signals: dict[str, TokenSignal], portfolio, risk_limits):
-        buyable = tradeable_buy_tokens(self.cfg)
-        held = {t for t, q in portfolio["positions"].items() if q > 0}
-        # Buy candidates must be in the execution-validated buy universe.  Held
-        # tokens are also considered so the strategy can make an explicit
-        # hold/trim/close decision even if a name later leaves deny_buy or the
-        # dynamic universe.
-        cand = [s for s in signals.values() if s.token in buyable or s.token in held]
-        if not cand:
-            return []
-        regime = cand[0].regime
-        held = {t for t in held if t in {s.token for s in cand}}
+    @staticmethod
+    def _relative_rank(candidates: list[TokenSignal], snapshot: dict, field: str) -> dict[str, float]:
+        """Map a numeric snapshot field to [-1, 1] cross-sectional rank scores."""
+        vals = {s.token: float(snapshot.get(s.token, {}).get(field, 0.0)) for s in candidates}
+        if not vals or max(vals.values()) - min(vals.values()) < 1e-12:
+            return {s.token: 0.0 for s in candidates}
+        ordered = sorted(candidates, key=lambda s: vals[s.token])
+        if len(ordered) <= 1:
+            return {s.token: 0.0 for s in ordered}
+        return {s.token: 2.0 * i / (len(ordered) - 1) - 1.0
+                for i, s in enumerate(ordered)}
 
-        if regime is Regime.CHOP:
-            return []                          # hold current; stops still run upstream
-
-        def relative(field: str) -> dict[str, float]:
-            vals = {s.token: float(snapshot.get(s.token, {}).get(field, 0.0)) for s in cand}
-            if not vals or max(vals.values()) - min(vals.values()) < 1e-12:
-                return {s.token: 0.0 for s in cand}
-            ordered = sorted(cand, key=lambda s: vals[s.token])
-            if len(ordered) <= 1:
-                return {s.token: 0.0 for s in ordered}
-            return {s.token: 2.0 * i / (len(ordered) - 1) - 1.0
-                    for i, s in enumerate(ordered)}
-
-        rel6, rel24 = relative("return_6h"), relative("return_24h")
-        quality = {}
-        for s in cand:
+    def _quality_scores(self, candidates: list[TokenSignal], snapshot: dict) -> dict[str, float]:
+        """Cost/risk/extension-aware ranking score used for rotation targets."""
+        rel6 = self._relative_rank(candidates, snapshot, "return_6h")
+        rel24 = self._relative_rank(candidates, snapshot, "return_24h")
+        quality: dict[str, float] = {}
+        for s in candidates:
             d = snapshot.get(s.token, {})
             vol_adj = max(-1.0, min(1.0, float(d.get("vol_adjusted_return", 0.0)) / 3.0))
             vol_chg = max(-1.0, min(1.0, float(d.get("cmc_volume_change_24h", 0.0) or 0.0) / 1.5))
@@ -321,6 +310,97 @@ class RotationDecider:
                                 - 0.75 * spread - 0.10 * risk - chase_penalty
                                 - liquidity_penalty - rank_penalty - holder_penalty
                                 - ambiguous_penalty)
+        return quality
+
+    def _held_floor(self, regime: Regime) -> float:
+        return self.held_exit_floor_down if regime is Regime.TREND_DOWN else self.held_exit_floor_up
+
+    def _entry_classification(self, signal: TokenSignal, regime: Regime,
+                              snapshot: dict, quality: dict[str, float]) -> tuple[bool, str]:
+        """Return whether a new entry is fresh enough and why."""
+        if not self.entry_filter_enabled:
+            return True, "entry_filter_disabled"
+        d = snapshot.get(signal.token, {})
+        q = quality.get(signal.token, -1.0)
+        if regime is Regime.TREND_DOWN:
+            r6 = float(d.get("return_6h", 0.0) or 0.0)
+            c1 = float(d.get("cmc_pct_1h", 0.0) or 0.0)
+            c24 = float(d.get("cmc_pct_24h", 0.0) or 0.0)
+            c7 = float(d.get("cmc_pct_7d", 0.0) or 0.0)
+            vol_chg = float(d.get("cmc_volume_change_24h", 0.0) or 0.0)
+            dist_high = float(d.get("distance_from_48h_high", -1.0) or -1.0)
+            if q < self.min_entry_quality_down:
+                return False, f"low_quality:{q:.3f}"
+            if r6 < self.min_entry_r6_down or r6 > self.max_entry_r6_down:
+                return False, f"bad_6h:{r6:.3f}"
+            if c1 > self.max_entry_cmc_1h_down:
+                return False, f"late_hot_1h:{c1:.3f}"
+            if c24 > self.max_entry_cmc_24h_down:
+                return False, f"late_hot_24h:{c24:.3f}"
+            if c7 > self.max_entry_cmc_7d_down:
+                return False, f"late_hot_7d:{c7:.3f}"
+            if dist_high > self.max_entry_distance_high_down and r6 > 0:
+                return False, f"near_48h_high:{dist_high:.3f}"
+            if vol_chg < self.min_entry_volume_change_down:
+                return False, f"weak_volume:{vol_chg:.3f}"
+            if (c1 > self.max_entry_cmc_1h_down * 0.70
+                    or c24 > self.max_entry_cmc_24h_down * 0.70) \
+                    and vol_chg < self.hot_volume_min_change_down:
+                return False, f"hot_without_volume:{vol_chg:.3f}"
+            if r6 >= 0.02 and c24 <= self.max_entry_cmc_24h_down * 0.70:
+                return True, "fresh_bounce"
+            return True, "continuation"
+        if q < self.min_entry_quality_up:
+            return False, f"low_quality:{q:.3f}"
+        return True, "trend_up_candidate"
+
+    @staticmethod
+    def _held_pnl(token: str, portfolio: dict) -> float:
+        avg = float(portfolio.get("avg_prices", {}).get(token, 0.0) or 0.0)
+        value = float(portfolio.get("position_values", {}).get(token, 0.0) or 0.0)
+        qty = float(portfolio.get("positions", {}).get(token, 0.0) or 0.0)
+        if avg <= 0.0 or qty <= 0.0:
+            return 0.0
+        return value / (qty * avg) - 1.0
+
+    def _held_exit_reason(self, signal: TokenSignal, regime: Regime, snapshot: dict,
+                          quality: dict[str, float], portfolio: dict) -> str | None:
+        if not self.held_exit_enabled:
+            return None
+        token = signal.token
+        floor = self._held_floor(regime)
+        if signal.score < floor:
+            return f"health exit: score {signal.score:.3f} < floor {floor:.3f}"
+        if regime is Regime.TREND_DOWN:
+            d = snapshot.get(token, {})
+            q = quality.get(token, 0.0)
+            r6 = float(d.get("return_6h", 0.0) or 0.0)
+            pnl = self._held_pnl(token, portfolio)
+            if q < self.held_min_quality_down:
+                return f"health exit: quality {q:.3f} < {self.held_min_quality_down:.3f}"
+            if r6 < self.held_min_return_6h_down:
+                return f"health exit: 6h momentum {r6:.3f} < {self.held_min_return_6h_down:.3f}"
+            if pnl <= self.held_stale_loss_pct and r6 < self.held_stale_loss_min_r6:
+                return f"health exit: stale loss pnl={pnl:.3f}, r6={r6:.3f}"
+        return None
+
+    def decide(self, snapshot, signals: dict[str, TokenSignal], portfolio, risk_limits):
+        buyable = tradeable_buy_tokens(self.cfg)
+        held = {t for t, q in portfolio["positions"].items() if q > 0}
+        # Buy candidates must be in the execution-validated buy universe.  Held
+        # tokens are also considered so the strategy can make an explicit
+        # hold/trim/close decision even if a name later leaves deny_buy or the
+        # dynamic universe.
+        cand = [s for s in signals.values() if s.token in buyable or s.token in held]
+        if not cand:
+            return []
+        regime = cand[0].regime
+        held = {t for t in held if t in {s.token for s in cand}}
+
+        if regime is Regime.CHOP:
+            return []                          # hold current; stops still run upstream
+
+        quality = self._quality_scores(cand, snapshot)
         ranked = sorted(cand, key=lambda s: quality[s.token], reverse=True)
         confirmation = self.cfg.get("decision", {}).get("signal_confirmation", {})
         immediate = float(confirmation.get("immediate_score", 0.40))
@@ -334,79 +414,11 @@ class RotationDecider:
                     (s.score >= immediate) or
                     (s.score > threshold and int(streaks.get(s.token, 0)) >= required_ticks))
 
-        def held_floor() -> float:
-            return self.held_exit_floor_down if regime is Regime.TREND_DOWN else self.held_exit_floor_up
-
-        def entry_classification(s) -> tuple[bool, str]:
-            if not self.entry_filter_enabled:
-                return True, "entry_filter_disabled"
-            d = snapshot.get(s.token, {})
-            q = quality.get(s.token, -1.0)
-            if regime is Regime.TREND_DOWN:
-                r6 = float(d.get("return_6h", 0.0) or 0.0)
-                c1 = float(d.get("cmc_pct_1h", 0.0) or 0.0)
-                c24 = float(d.get("cmc_pct_24h", 0.0) or 0.0)
-                c7 = float(d.get("cmc_pct_7d", 0.0) or 0.0)
-                vol_chg = float(d.get("cmc_volume_change_24h", 0.0) or 0.0)
-                dist_high = float(d.get("distance_from_48h_high", -1.0) or -1.0)
-                if q < self.min_entry_quality_down:
-                    return False, f"low_quality:{q:.3f}"
-                if r6 < self.min_entry_r6_down or r6 > self.max_entry_r6_down:
-                    return False, f"bad_6h:{r6:.3f}"
-                if c1 > self.max_entry_cmc_1h_down:
-                    return False, f"late_hot_1h:{c1:.3f}"
-                if c24 > self.max_entry_cmc_24h_down:
-                    return False, f"late_hot_24h:{c24:.3f}"
-                if c7 > self.max_entry_cmc_7d_down:
-                    return False, f"late_hot_7d:{c7:.3f}"
-                if dist_high > self.max_entry_distance_high_down and r6 > 0:
-                    return False, f"near_48h_high:{dist_high:.3f}"
-                if vol_chg < self.min_entry_volume_change_down:
-                    return False, f"weak_volume:{vol_chg:.3f}"
-                if (c1 > self.max_entry_cmc_1h_down * 0.70
-                        or c24 > self.max_entry_cmc_24h_down * 0.70) \
-                        and vol_chg < self.hot_volume_min_change_down:
-                    return False, f"hot_without_volume:{vol_chg:.3f}"
-                if r6 >= 0.02 and c24 <= self.max_entry_cmc_24h_down * 0.70:
-                    return True, "fresh_bounce"
-                return True, "continuation"
-            else:
-                if q < self.min_entry_quality_up:
-                    return False, f"low_quality:{q:.3f}"
-            return True, "trend_up_candidate"
-
         def fresh_entry(s) -> bool:
-            return entry_classification(s)[0]
-
-        def held_pnl(token: str) -> float:
-            avg = float(portfolio.get("avg_prices", {}).get(token, 0.0) or 0.0)
-            value = float(portfolio.get("position_values", {}).get(token, 0.0) or 0.0)
-            qty = float(portfolio.get("positions", {}).get(token, 0.0) or 0.0)
-            if avg <= 0.0 or qty <= 0.0:
-                return 0.0
-            return value / (qty * avg) - 1.0
-
-        def held_exit_reason(s) -> str | None:
-            if not self.held_exit_enabled:
-                return None
-            token = s.token
-            if s.score < held_floor():
-                return f"health exit: score {s.score:.3f} < floor {held_floor():.3f}"
-            if regime is Regime.TREND_DOWN:
-                d = snapshot.get(token, {})
-                q = quality.get(token, 0.0)
-                r6 = float(d.get("return_6h", 0.0) or 0.0)
-                pnl = held_pnl(token)
-                if q < self.held_min_quality_down:
-                    return f"health exit: quality {q:.3f} < {self.held_min_quality_down:.3f}"
-                if r6 < self.held_min_return_6h_down:
-                    return f"health exit: 6h momentum {r6:.3f} < {self.held_min_return_6h_down:.3f}"
-                if pnl <= self.held_stale_loss_pct and r6 < self.held_stale_loss_min_r6:
-                    return f"health exit: stale loss pnl={pnl:.3f}, r6={r6:.3f}"
-            return None
+            return self._entry_classification(s, regime, snapshot, quality)[0]
 
         def held_healthy(s) -> bool:
-            return held_exit_reason(s) is None
+            return self._held_exit_reason(s, regime, snapshot, quality, portfolio) is None
 
         def eligible_target(s, threshold):
             if s.token in held:
@@ -448,7 +460,8 @@ class RotationDecider:
             if t not in targets:
                 self._exited_at[t] = self._now   # arm the re-entry cooldown
                 held_signal = signals.get(t)
-                reason = held_exit_reason(held_signal) if held_signal else None
+                reason = (self._held_exit_reason(held_signal, regime, snapshot, quality, portfolio)
+                          if held_signal else None)
                 decisions.append(_dec(t, "close", 0.0, 0.78 if reason else 0.7,
                                       reason or f"rotate out ({regime.value})"))
         rank = risk_limits.get("leaderboard_rank")
@@ -464,7 +477,7 @@ class RotationDecider:
         for token in targets:
             current = portfolio.get("position_values", {}).get(token, 0.0)
             excess = current - target_value
-            pnl = held_pnl(token)
+            pnl = self._held_pnl(token, portfolio)
             if (token in held and pnl >= self.micro_profit_take_pct
                     and current * self.micro_profit_sell_fraction >= self.min_micro_profit_sell_usd):
                 decisions.append({"token": token, "action": "trim", "size_pct": 0.0,
@@ -488,7 +501,7 @@ class RotationDecider:
                 if size_pct <= 0:
                     continue
                 conf = min(0.95, 0.55 + abs(s.score) / 2)
-                _, entry_kind = entry_classification(s)
+                _, entry_kind = self._entry_classification(s, regime, snapshot, quality)
                 decisions.append(_dec(s.token, "buy", size_pct, conf,
                                       f"rotate in: {entry_kind}, quality={quality[s.token]:.3f}, "
                                       f"signal={s.score} ({regime.value}), gross={gross:.2f}"))
