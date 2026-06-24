@@ -17,7 +17,7 @@ quote_asset: USDT        # cash leg
 eligible_tokens_file: config/eligible_tokens.txt   # populate from the 149-list
 
 # --- Loop -----------------------------------------------------------------
-poll_interval_minutes: 15
+poll_interval_minutes: 1
 rpc:
   max_retries: 5
   backoff_base_seconds: 2     # exponential: 2,4,8,16,32
@@ -54,7 +54,8 @@ risk:
   min_trades_per_week: 7
   force_daily_trade: false      # disabled: never trade just to satisfy daily activity
   max_trades_per_day: 12        # NEW ENTRIES only; enough for rotations without churn
-  min_seconds_between_trades: 900   # one 15-minute loop; other anti-churn gates still apply
+  min_seconds_between_trades: 900   # keep 15-minute entry pacing even with 1-minute ticks;
+                                    # other anti-churn gates still apply
                                     # budget isn't burned in the first few hours. Closes are
                                     # EXEMPT (risk_gate lets exits through), so this only paces
                                     # new entries; rotation still exits freely. (Backtest forces
@@ -287,13 +288,13 @@ twak:
 x402:
   signal_url: ""              # set to the https x402 endpoint to enable in-loop payments
   max_payment_atomic: 1000    # 0.001 USDC cap per request (6dp)
-  every_n_ticks: 4            # pay for the premium signal every Nth tick (not every tick)
+  every_n_ticks: 60           # 1-minute loop: keep paid premium signal roughly hourly
 
 bnb_sdk:
   agent_name: cmc-twak-trading-agent
   enabled: true
   agent_id: "138200"            # ERC-8004 identity minted on BSC mainnet (special prize)
-  attest_every_n_ticks: 96      # write track record on-chain to the identity ~daily (15-min ticks)
+  attest_every_n_ticks: 1440    # 1-minute loop: write track record on-chain ~daily
   # tx: https://bscscan.com/tx/0x64ffc8dbe7b38428bdc456839456fe12ab8a8702581ee2d679c5b21727eb45ca
 
 # --- Persistence ----------------------------------------------------------
