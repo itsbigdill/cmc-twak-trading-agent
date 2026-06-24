@@ -75,3 +75,31 @@ def test_trace_records_candidate_decisions_and_risk_outcomes(cfg):
     assert trace["final_action"] == "buy:COAI"
     assert trace["candidate_decisions"] == [decision]
     assert trace["risk_outcomes"] == [outcome]
+
+
+def test_trace_explains_entry_filter_rejection(cfg):
+    cfg = _cfg(cfg)
+    cfg["decision"]["entry_filter"] = {
+        "enabled": True,
+        "max_cmc_pct_24h_downtrend": 0.18,
+        "max_cmc_pct_7d_downtrend": 0.45,
+        "min_return_6h_downtrend": 0.0,
+        "max_return_6h_downtrend": 0.08,
+    }
+    snap = {"COAI": {
+        "round_trip_loss_pct": 1.2,
+        "risk_level": "low",
+        "history_bars": 42,
+        "return_6h": 0.02,
+        "cmc_pct_1h": 0.01,
+        "cmc_pct_24h": 0.24,
+        "cmc_pct_7d": 0.30,
+    }}
+    signals = {"COAI": _sig("COAI", 0.5)}
+    trace = _decision_trace(
+        cfg, "tick", snap, signals,
+        {"cash_usd": 10, "total_equity_usd": 10, "positions": {}},
+        {"signal_streaks": {"COAI": 3}}, [], {"COAI"},
+    )
+    assert trace["best_validated"]["entry_filter_reason"] == "late_hot_24h:0.240>0.180"
+    assert trace["reason"] == "entry_filter_rejected:late_hot_24h:0.240>0.180"

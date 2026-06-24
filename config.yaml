@@ -151,6 +151,24 @@ decision:
     max_distance_from_48h_high_downtrend: -0.005
     min_volume_change_24h_downtrend: -0.25
     hot_volume_min_change_24h_downtrend: -0.10
+    # Profit-first pullback exception: allow a strong validated name to re-enter
+    # after a real 1h pullback even if the 24h move is slightly above the normal
+    # anti-chase cap. This is NOT a chase bypass; size is capped separately and
+    # route friction/risk must be low enough to leave room for a positive exit.
+    pullback_exception_enabled: true
+    pullback_exposure_pct: 0.40
+    pullback_min_score: 0.32
+    pullback_min_quality_downtrend: 0.20
+    pullback_min_cmc_pct_1h_downtrend: -0.12
+    pullback_max_cmc_pct_1h_downtrend: -0.03
+    pullback_min_return_6h_downtrend: -0.02
+    pullback_max_return_6h_downtrend: 0.04
+    pullback_max_cmc_pct_24h_downtrend: 0.24
+    pullback_max_cmc_pct_7d_downtrend: 0.55
+    pullback_min_x402: 0.25
+    pullback_min_cmc: 0.80
+    pullback_max_round_trip_loss_pct: 2.0
+    pullback_max_token_risk_score: 30
   held_exit:
     enabled: true
     # Held-token health floor. A current position may stay below the new-entry

@@ -348,6 +348,113 @@ def test_downtrend_entry_rejects_hot_move_without_volume_confirmation(cfg):
     assert not any(x["token"] == "LAB" and x["action"] == "buy" for x in out)
 
 
+def test_downtrend_pullback_exception_allows_cost_controlled_reentry(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "entry_filter": {"enabled": True,
+                                                "min_quality_downtrend": -1.0,
+                                                "max_cmc_pct_1h_downtrend": 0.03,
+                                                "max_cmc_pct_24h_downtrend": 0.18,
+                                                "max_cmc_pct_7d_downtrend": 0.45,
+                                                "min_return_6h_downtrend": 0.0,
+                                                "max_return_6h_downtrend": 0.08,
+                                                "pullback_exception_enabled": True,
+                                                "pullback_exposure_pct": 0.40,
+                                                "pullback_min_score": 0.32,
+                                                "pullback_min_quality_downtrend": 0.20,
+                                                "pullback_min_cmc_pct_1h_downtrend": -0.12,
+                                                "pullback_max_cmc_pct_1h_downtrend": -0.03,
+                                                "pullback_min_return_6h_downtrend": -0.02,
+                                                "pullback_max_return_6h_downtrend": 0.04,
+                                                "pullback_max_cmc_pct_24h_downtrend": 0.24,
+                                                "pullback_max_cmc_pct_7d_downtrend": 0.55,
+                                                "pullback_min_x402": 0.25,
+                                                "pullback_min_cmc": 0.80,
+                                                "pullback_max_round_trip_loss_pct": 2.0,
+                                                "pullback_max_token_risk_score": 30},
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.30,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55,
+                                                  "high_conviction_enabled": True,
+                                                  "high_conviction_exposure_pct": 0.55,
+                                                  "high_conviction_min_score": 0.30,
+                                                  "high_conviction_min_x402": 0.25,
+                                                  "high_conviction_min_cmc": 0.80,
+                                                  "high_conviction_min_quality": 0.25,
+                                                  "high_conviction_max_round_trip_loss_pct": 2.5,
+                                                  "high_conviction_max_token_risk_score": 30,
+                                                  "high_conviction_min_volume_24h_usd": 5_000_000}}}
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.33, Regime.TREND_DOWN)}
+    snap = _snap("ETH")
+    snap["ETH"].update({
+        "return_6h": 0.006,
+        "return_24h": 0.20,
+        "cmc_pct_1h": -0.06,
+        "cmc_pct_24h": 0.21,       # above normal 18% cap, allowed only by pullback exception
+        "cmc_pct_7d": 0.38,
+        "cmc_volume_24h": 80_000_000,
+        "cmc_volume_change_24h": 1.0,
+        "cmc_score": 0.90,
+        "x402_token_score": 0.26,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.9,
+        "distance_from_48h_high": -0.06,
+    })
+    buys = [x for x in d.decide(snap, signals, _portfolio(),
+                                {"signal_streaks": {"ETH": 4},
+                                 "leaderboard_rank": 40,
+                                 "leaderboard_return_pct": -7.0,
+                                 "executable_return_pct": -7.0})
+            if x["action"] == "buy"]
+    assert buys
+    assert buys[0]["size_pct"] == pytest.approx(0.40)
+    assert "validated_pullback" in buys[0]["rationale"]
+
+
+def test_downtrend_pullback_exception_rejects_expensive_round_trip(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "entry_filter": {"enabled": True,
+                                                "min_quality_downtrend": -1.0,
+                                                "max_cmc_pct_24h_downtrend": 0.18,
+                                                "pullback_exception_enabled": True,
+                                                "pullback_min_score": 0.32,
+                                                "pullback_min_quality_downtrend": 0.20,
+                                                "pullback_min_cmc_pct_1h_downtrend": -0.12,
+                                                "pullback_max_cmc_pct_1h_downtrend": -0.03,
+                                                "pullback_min_return_6h_downtrend": -0.02,
+                                                "pullback_max_return_6h_downtrend": 0.04,
+                                                "pullback_max_cmc_pct_24h_downtrend": 0.24,
+                                                "pullback_max_cmc_pct_7d_downtrend": 0.55,
+                                                "pullback_min_x402": 0.25,
+                                                "pullback_min_cmc": 0.80,
+                                                "pullback_max_round_trip_loss_pct": 2.0,
+                                                "pullback_max_token_risk_score": 30}}}
+    d = RotationDecider(cfg)
+    signals = {"ETH": _sig("ETH", 0.36, Regime.TREND_DOWN)}
+    snap = _snap("ETH")
+    snap["ETH"].update({
+        "return_6h": 0.006,
+        "return_24h": 0.20,
+        "cmc_pct_1h": -0.06,
+        "cmc_pct_24h": 0.21,
+        "cmc_pct_7d": 0.38,
+        "cmc_volume_change_24h": 1.0,
+        "cmc_score": 0.90,
+        "x402_token_score": 0.26,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 2.6,
+    })
+    out = d.decide(snap, signals, _portfolio(),
+                   {"signal_streaks": {"ETH": 4}})
+    assert not any(x["token"] == "ETH" and x["action"] == "buy" for x in out)
+
+
 def test_held_token_exits_when_short_momentum_breaks_in_downtrend(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "held_exit": {"enabled": True,

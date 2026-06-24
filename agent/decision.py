@@ -207,6 +207,30 @@ class RotationDecider:
             "min_volume_change_24h_downtrend", -0.25))
         self.hot_volume_min_change_down = float(entry_cfg.get(
             "hot_volume_min_change_24h_downtrend", -0.10))
+        self.pullback_exception_enabled = bool(entry_cfg.get(
+            "pullback_exception_enabled", False))
+        self.pullback_gross = float(entry_cfg.get("pullback_exposure_pct", 0.40))
+        self.pullback_min_score = float(entry_cfg.get("pullback_min_score", 0.32))
+        self.pullback_min_quality_down = float(entry_cfg.get(
+            "pullback_min_quality_downtrend", 0.20))
+        self.pullback_min_c1_down = float(entry_cfg.get(
+            "pullback_min_cmc_pct_1h_downtrend", -0.12))
+        self.pullback_max_c1_down = float(entry_cfg.get(
+            "pullback_max_cmc_pct_1h_downtrend", -0.03))
+        self.pullback_min_r6_down = float(entry_cfg.get(
+            "pullback_min_return_6h_downtrend", -0.02))
+        self.pullback_max_r6_down = float(entry_cfg.get(
+            "pullback_max_return_6h_downtrend", 0.04))
+        self.pullback_max_c24_down = float(entry_cfg.get(
+            "pullback_max_cmc_pct_24h_downtrend", self.max_entry_cmc_24h_down))
+        self.pullback_max_c7_down = float(entry_cfg.get(
+            "pullback_max_cmc_pct_7d_downtrend", self.max_entry_cmc_7d_down))
+        self.pullback_min_x402 = float(entry_cfg.get("pullback_min_x402", 0.25))
+        self.pullback_min_cmc = float(entry_cfg.get("pullback_min_cmc", 0.80))
+        self.pullback_max_round_trip = float(entry_cfg.get(
+            "pullback_max_round_trip_loss_pct", 2.0))
+        self.pullback_max_risk = float(entry_cfg.get(
+            "pullback_max_token_risk_score", 30.0))
         ds = d.get("dynamic_sizing", {}) or {}
         self.dynamic_sizing = bool(ds.get("enabled", False))
         self.ds_low_score = float(ds.get("low_score", self.down_min_mom))
@@ -274,6 +298,35 @@ class RotationDecider:
             and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= self.ds_hc_max_round_trip
             and float(d.get("token_risk_score", 100.0) or 100.0) <= self.ds_hc_max_risk
             and float(d.get("cmc_volume_24h", 0.0) or 0.0) >= self.ds_hc_min_volume
+            and not self._pullback_exception(s, snapshot, quality)
+        )
+
+    def _pullback_exception(self, signal: TokenSignal, snapshot: dict,
+                            quality: dict[str, float]) -> bool:
+        """Allow a controlled re-entry after a real pullback, not at the vertical top.
+
+        This is intentionally narrower than the normal entry path: it may relax the
+        24h/7d anti-chase caps, but only when the short-term candle has actually
+        cooled off and the route friction/risk leave room for a positive exit.
+        """
+        if not self.pullback_exception_enabled or signal.regime is not Regime.TREND_DOWN:
+            return False
+        d = snapshot.get(signal.token, {})
+        c1 = float(d.get("cmc_pct_1h", 0.0) or 0.0)
+        c24 = float(d.get("cmc_pct_24h", 0.0) or 0.0)
+        c7 = float(d.get("cmc_pct_7d", 0.0) or 0.0)
+        r6 = float(d.get("return_6h", 0.0) or 0.0)
+        return (
+            float(signal.score) >= self.pullback_min_score
+            and float(quality.get(signal.token, -1.0)) >= self.pullback_min_quality_down
+            and self.pullback_min_c1_down <= c1 <= self.pullback_max_c1_down
+            and self.pullback_min_r6_down <= r6 <= self.pullback_max_r6_down
+            and c24 <= self.pullback_max_c24_down
+            and c7 <= self.pullback_max_c7_down
+            and float(d.get("x402_token_score", 0.0) or 0.0) >= self.pullback_min_x402
+            and float(d.get("cmc_score", 0.0) or 0.0) >= self.pullback_min_cmc
+            and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= self.pullback_max_round_trip
+            and float(d.get("token_risk_score", 100.0) or 100.0) <= self.pullback_max_risk
         )
 
     def _catchup_gross(self, targets: list[str], signals: dict[str, TokenSignal],
@@ -297,9 +350,15 @@ class RotationDecider:
 
         snapshot = snapshot or {}
         quality = quality or {}
-        if any(self._high_conviction_target(t, signals, snapshot, quality, risk_limits)
-               for t in targets):
+        pullback_targets = [t for t in targets
+                            if t in signals and self._pullback_exception(signals[t], snapshot, quality)]
+        high_conviction_targets = [t for t in targets
+                                   if self._high_conviction_target(t, signals, snapshot,
+                                                                   quality, risk_limits)]
+        if high_conviction_targets:
             gross = max(gross, self.ds_hc_gross)
+        elif pullback_targets:
+            gross = max(gross, self.pullback_gross)
 
         dd_vals = []
         for key in ("leaderboard_drawdown_pct", "current_drawdown_pct"):
@@ -381,6 +440,8 @@ class RotationDecider:
             dist_high = float(d.get("distance_from_48h_high", -1.0) or -1.0)
             if q < self.min_entry_quality_down:
                 return False, f"low_quality:{q:.3f}"
+            if self._pullback_exception(signal, snapshot, quality):
+                return True, "validated_pullback"
             if r6 < self.min_entry_r6_down or r6 > self.max_entry_r6_down:
                 return False, f"bad_6h:{r6:.3f}"
             if c1 > self.max_entry_cmc_1h_down:

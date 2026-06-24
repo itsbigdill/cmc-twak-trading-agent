@@ -31,6 +31,63 @@ from .signal_engine import score_universe
 from .state import PortfolioState, make_order_id
 
 
+def _trace_entry_filter_reason(cfg: dict | None, token: str, signal,
+                               snapshot: dict | None) -> str | None:
+    """Explain why a validated candidate is or is not fresh enough to enter.
+
+    This mirrors the deterministic entry filter at a diagnostic level so the
+    dashboard/raw trace can answer "why no buy?" without re-implementing logic.
+    It intentionally avoids ranking quality because trace generation should stay
+    cheap and side-effect free; the concrete threshold reasons are still useful.
+    """
+    if not cfg or signal is None:
+        return None
+    if getattr(getattr(signal, "regime", None), "value", None) != "trend_down":
+        return "not_downtrend_entry_filter"
+    entry = cfg.get("decision", {}).get("entry_filter", {}) or {}
+    if not entry.get("enabled", True):
+        return "entry_filter_disabled"
+    d = (snapshot or {}).get(token, {})
+    score = float(getattr(signal, "score", 0.0) or 0.0)
+    r6 = float(d.get("return_6h", 0.0) or 0.0)
+    c1 = float(d.get("cmc_pct_1h", 0.0) or 0.0)
+    c24 = float(d.get("cmc_pct_24h", 0.0) or 0.0)
+    c7 = float(d.get("cmc_pct_7d", 0.0) or 0.0)
+    rt = float(d.get("round_trip_loss_pct", 999.0) or 999.0)
+    risk = float(d.get("token_risk_score", 100.0) or 100.0)
+    x402 = float(d.get("x402_token_score", 0.0) or 0.0)
+    cmc = float(d.get("cmc_score", 0.0) or 0.0)
+    if entry.get("pullback_exception_enabled", False):
+        if (
+            score >= float(entry.get("pullback_min_score", 0.32))
+            and float(entry.get("pullback_min_cmc_pct_1h_downtrend", -0.12))
+            <= c1 <= float(entry.get("pullback_max_cmc_pct_1h_downtrend", -0.03))
+            and float(entry.get("pullback_min_return_6h_downtrend", -0.02))
+            <= r6 <= float(entry.get("pullback_max_return_6h_downtrend", 0.04))
+            and c24 <= float(entry.get("pullback_max_cmc_pct_24h_downtrend", 0.24))
+            and c7 <= float(entry.get("pullback_max_cmc_pct_7d_downtrend", 0.55))
+            and x402 >= float(entry.get("pullback_min_x402", 0.25))
+            and cmc >= float(entry.get("pullback_min_cmc", 0.80))
+            and rt <= float(entry.get("pullback_max_round_trip_loss_pct", 2.0))
+            and risk <= float(entry.get("pullback_max_token_risk_score", 30.0))
+        ):
+            return "validated_pullback_candidate"
+    min_r6 = float(entry.get("min_return_6h_downtrend", 0.0))
+    max_r6 = float(entry.get("max_return_6h_downtrend", 0.08))
+    if r6 < min_r6 or r6 > max_r6:
+        return f"bad_6h:{r6:.3f} not in [{min_r6:.3f},{max_r6:.3f}]"
+    max_c1 = float(entry.get("max_cmc_pct_1h_downtrend", 0.03))
+    if c1 > max_c1:
+        return f"late_hot_1h:{c1:.3f}>{max_c1:.3f}"
+    max_c24 = float(entry.get("max_cmc_pct_24h_downtrend", 0.18))
+    if c24 > max_c24:
+        return f"late_hot_24h:{c24:.3f}>{max_c24:.3f}"
+    max_c7 = float(entry.get("max_cmc_pct_7d_downtrend", 0.45))
+    if c7 > max_c7:
+        return f"late_hot_7d:{c7:.3f}>{max_c7:.3f}"
+    return "entry_filter_passed"
+
+
 def _trace_token(token: str | None, signal=None, snapshot: dict | None = None,
                  *, tradeable: set[str] | None = None,
                  cfg: dict | None = None) -> dict | None:
@@ -66,6 +123,7 @@ def _trace_token(token: str | None, signal=None, snapshot: dict | None = None,
     if signal is not None:
         out["components"] = getattr(signal, "components", {})
         out["actionable"] = getattr(signal, "actionable", None)
+        out["entry_filter_reason"] = _trace_entry_filter_reason(cfg, token, signal, snapshot)
     for k in ("x402_token_score", "cmc_score", "cmc_rank", "cmc_volume_24h",
               "cmc_pct_1h", "cmc_pct_24h", "cmc_pct_7d",
               "token_risk_score", "return_6h", "return_24h"):
@@ -105,6 +163,10 @@ def _decision_trace(cfg, tick_id, snapshot, signals, portfolio, risk_limits,
         threshold = None
 
     best_for_gate = valid_ranked[0] if valid_ranked else (trade_ranked[0] if trade_ranked else None)
+    best_for_gate_trace = (_trace_token(best_for_gate.token, best_for_gate, snapshot,
+                                        tradeable=tradeable, cfg=cfg)
+                           if best_for_gate else None)
+    entry_filter_reason = (best_for_gate_trace or {}).get("entry_filter_reason")
     confirm = cfg.get("decision", {}).get("signal_confirmation", {})
     immediate = float(confirm.get("immediate_score", 0.48))
     required_ticks = int(confirm.get("required_ticks", 3))
@@ -130,6 +192,13 @@ def _decision_trace(cfg, tick_id, snapshot, signals, portfolio, risk_limits,
         final_action, reason = "hold", f"best_validated_score_below_{threshold_name}"
     elif not confirmed:
         final_action, reason = "hold", "signal_confirmation_streak_not_met"
+    elif entry_filter_reason and entry_filter_reason not in {
+        "entry_filter_passed",
+        "validated_pullback_candidate",
+        "entry_filter_disabled",
+        "not_downtrend_entry_filter",
+    }:
+        final_action, reason = "hold", f"entry_filter_rejected:{entry_filter_reason}"
     else:
         # If we got here, the deterministic candidate was likely removed by an
         # upstream hysteresis/rotation rule or the LLM second gate.
