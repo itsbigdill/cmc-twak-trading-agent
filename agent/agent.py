@@ -616,42 +616,6 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
     log.write(_decision_trace(cfg, tick_id, snapshot, signals, portfolio, risk_limits,
                               decisions, tradeable, risk_outcomes=risk_outcomes))
 
-    # --- Guarantee the min-1-trade/day requirement during the UTC day -------
-    # Off-list/zero-trade days don't count. Trigger from 18:00 UTC (~24 retry
-    # ticks before midnight, not a single 2h band) and try several candidates so
-    # one blocked/illiquid name can't burn the day. If we can't BUY (low cash /
-    # daily pause), trim a position instead — a close also counts as a trade and
-    # needs no cash.
-    if (r.get("force_daily_trade") and state.trades_today == 0
-            and not state.halted and hour >= 18):
-        cands = sorted((s for s in signals.values() if s.token in tradeable),
-                       key=lambda s: abs(s.score), reverse=True)
-        done = False
-        if state.cash_usd > r["min_portfolio_usd"]:
-            for s in cands[:5]:                     # try the 5 strongest in turn
-                px = prices.get(s.token, 0.0)
-                if px <= 0:
-                    continue
-                verdict = risk_gate.evaluate(
-                    token=s.token, action="buy", requested_size_pct=0.05, confidence=0.6,
-                    token_risk_score=snapshot.get(s.token, {}).get("token_risk_score", 0),
-                    state=state, equity=equity, cfg=cfg, now=now_ts,
-                )
-                if verdict.approved:
-                    done = _exec_and_log(executor, state, cfg, tick_id, s.token, "buy",
-                                         verdict.adjusted_size_usd, px,
-                                         log, "maintenance trade (min 1/day)", now=now_ts)
-                    if done:
-                        break
-        if not done and state.positions:           # fall back: trim smallest holding
-            tkn = min(state.positions,
-                      key=lambda t: abs(state.positions[t].qty * state.positions[t].avg_price))
-            done = _force_close(executor, state, cfg, tick_id, tkn,
-                                _mark_px(prices, state, tkn), log,
-                                "maintenance trade (min 1/day, trim)", now=now_ts)
-        if not done:
-            log.event("maintenance_skipped", reason="no deployable cash and no positions to trim")
-
     # final equity mark + persist
     state.mark_equity(prices, tick_id)
     state.save(cfg["paths"]["state_file"])

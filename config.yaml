@@ -52,7 +52,7 @@ risk:
   # Cap the top end to avoid simulated-tx-cost bleed.
   min_trades_per_day: 1
   min_trades_per_week: 7
-  force_daily_trade: true       # if a UTC day has 0 trades, make 1 maintenance trade
+  force_daily_trade: false      # disabled: never trade just to satisfy daily activity
   max_trades_per_day: 4         # NEW ENTRIES only; sniper mode gets one comeback shot
   min_seconds_between_trades: 900   # one 15-minute loop; other anti-churn gates still apply
                                     # budget isn't burned in the first few hours. Closes are
