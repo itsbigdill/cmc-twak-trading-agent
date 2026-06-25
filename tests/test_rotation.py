@@ -899,6 +899,53 @@ def test_strategy_debug_records_per_token_candidate_audit_and_tool_coverage(cfg)
     assert coverage["x402"] >= 2
 
 
+def test_downtrend_entry_allows_tiny_negative_6h_noise(cfg):
+    """Recovery mode should not treat a -1bp 6h print as a falling knife.
+
+    Other freshness/risk gates still apply; this only prevents a high-score,
+    route-validated candidate from being suppressed by rounding noise right
+    around zero 6h momentum.
+    """
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.275,
+                               "entry_filter": {"enabled": True,
+                                                "min_quality_downtrend": 0.03,
+                                                "min_return_6h_downtrend": -0.005,
+                                                "max_return_6h_downtrend": 0.08,
+                                                "max_cmc_pct_1h_downtrend": 0.03,
+                                                "max_cmc_pct_24h_downtrend": 0.18,
+                                                "max_cmc_pct_7d_downtrend": 0.45,
+                                                "min_volume_change_24h_downtrend": -0.25,
+                                                "max_distance_from_48h_high_downtrend": -0.005}},
+                 "twak": {**cfg["twak"],
+                          "token_contracts": {**cfg["twak"]["token_contracts"],
+                                              "UAI": "0x0000000000000000000000000000000000000001"}}}
+    d = RotationDecider(cfg)
+    signals = {"UAI": _sig("UAI", 0.33, Regime.TREND_DOWN)}
+    snap = _snap("UAI")
+    snap["UAI"].update({
+        "return_6h": -0.0002,
+        "return_24h": 0.04,
+        "cmc_pct_1h": 0.006,
+        "cmc_pct_24h": 0.058,
+        "cmc_pct_7d": -0.02,
+        "cmc_volume_change_24h": 0.39,
+        "distance_from_48h_high": -0.06,
+        "cmc_volume_24h": 6_700_000,
+        "cmc_score": 0.10,
+        "x402_token_score": 0.32,
+        "token_risk_score": 10,
+    })
+
+    out = d.decide(snap, signals, _portfolio(), {"signal_streaks": {"UAI": 3}})
+
+    buys = [x for x in out if x["action"] == "buy"]
+    assert len(buys) == 1
+    assert buys[0]["token"] == "UAI"
+    assert d.last_debug["rejects"].get("UAI") is None
+
+
 def test_surviving_scout_scales_up_while_far_behind(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,
