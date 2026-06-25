@@ -303,7 +303,7 @@ twak:
   # If present, the broad filter-verified universe (scripts/build_universe.py)
   # overrides the inline token_contracts below at load time.
   contracts_file: config/trade_universe.json
-  deny_buy: ["ZETA"]           # entry-only quarantine; existing ZETA can always be sold
+  deny_buy: ["ZETA", "TAC"]    # entry-only quarantine; existing positions can always be sold
   # Trade targets = eligible (149 list) AND verified BSC contract. Resolved via
   # `twak search` (scripts/resolve_universe.py -> config/bsc_contracts.json) and
   # curated to non-ambiguous liquid majors. BTC/BTCB and BNB are NOT eligible
