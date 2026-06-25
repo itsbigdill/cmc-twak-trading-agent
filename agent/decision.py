@@ -414,7 +414,11 @@ class AntiChurnPolicy:
         )
         return self.strategy._now - last_exit >= self.strategy.reentry_cooldown_sec
 
-    def reentry_reject_reason(self, token: str, portfolio: dict) -> str | None:
+    def reentry_reject_reason(self, token: str, portfolio: dict,
+                              state: StrategyState | None = None,
+                              signals: dict[str, TokenSignal] | None = None,
+                              snapshot: dict | None = None,
+                              risk_limits: dict | None = None) -> str | None:
         persisted_exited_at = portfolio.get("rotation_exited_at", {}) or {}
         last_exit = max(
             float(self.strategy._exited_at.get(token, -1e18) or -1e18),
@@ -422,6 +426,20 @@ class AntiChurnPolicy:
         )
         remaining = self.strategy.reentry_cooldown_sec - (self.strategy._now - last_exit)
         if remaining > 0:
+            if state is not None and signals is not None and snapshot is not None:
+                # Tournament recovery mode: don't let a stale anti-churn cooldown
+                # suppress a fully validated high-conviction rebound.  The
+                # high-conviction predicate already checks catch-up need, x402/CMC
+                # confirmation, route friction, token risk, volume, and anti-chase.
+                # Ordinary candidates still obey the cooldown.
+                if self.strategy._high_conviction_target(
+                    token, signals, snapshot, state.quality, risk_limits or {}
+                ):
+                    state.anti_churn[token] = (
+                        f"AntiChurn:reentry_cooldown_bypassed_high_conviction:"
+                        f"{remaining:.0f}s_remaining"
+                    )
+                    return None
             return f"AntiChurn:reentry_cooldown:{remaining:.0f}s_remaining"
         return None
 
@@ -948,7 +966,9 @@ class RotationDecider:
                 continue
             if s.token not in state.held:
                 # hysteresis: skip names we rotated out of within the cooldown (anti-churn)
-                reentry_reason = self.anti_churn.reentry_reject_reason(s.token, portfolio)
+                reentry_reason = self.anti_churn.reentry_reject_reason(
+                    s.token, portfolio, state, signals, snapshot, risk_limits
+                )
                 if reentry_reason:
                     state.rejects[s.token] = reentry_reason
                     continue

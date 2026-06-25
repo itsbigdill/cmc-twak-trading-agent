@@ -365,6 +365,62 @@ def test_high_conviction_medium_signal_gets_full_catchup_size(cfg):
     assert "gross=0.55" in buys[0]["rationale"]
 
 
+def test_high_conviction_reentry_bypasses_cooldown_in_catchup(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "rotation_reentry_cooldown_hours": 4,
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.30,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55,
+                                                  "high_conviction_enabled": True,
+                                                  "high_conviction_exposure_pct": 0.55,
+                                                  "high_conviction_min_score": 0.30,
+                                                  "high_conviction_min_x402": 0.25,
+                                                  "high_conviction_min_cmc": 0.80,
+                                                  "high_conviction_min_quality": 0.25,
+                                                  "high_conviction_max_round_trip_loss_pct": 2.5,
+                                                  "high_conviction_max_token_risk_score": 30,
+                                                  "high_conviction_min_volume_24h_usd": 5_000_000,
+                                                  "high_conviction_catchup_rank_above": 5}}}
+    d = RotationDecider(cfg)
+    d._now = 10_000
+    signals = {"ETH": _sig("ETH", 0.41, Regime.TREND_DOWN)}
+    snap = _snap("ETH")
+    snap["ETH"].update({
+        "return_6h": 0.025,
+        "return_24h": 0.11,
+        "cmc_pct_1h": 0.008,
+        "cmc_pct_24h": 0.10,
+        "cmc_pct_7d": 0.24,
+        "cmc_volume_24h": 80_000_000,
+        "cmc_volume_change_24h": 0.25,
+        "cmc_score": 1.0,
+        "x402_token_score": 0.39,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.9,
+        "distance_from_48h_high": -0.03,
+    })
+    portfolio = _portfolio_with_timing({}, rotation_exited_at={"ETH": 10_000 - 600})
+    out = d.decide(
+        snap,
+        signals,
+        portfolio,
+        {
+            "signal_streaks": {"ETH": 2},
+            "leaderboard_rank": 20,
+            "leaderboard_return_pct": -8.7,
+            "executable_return_pct": -8.7,
+        },
+    )
+    assert any(x["token"] == "ETH" and x["action"] == "buy" for x in out)
+    assert "reentry_cooldown_bypassed_high_conviction" in d.last_debug["anti_churn"]["ETH"]
+
+
 def test_high_conviction_size_still_respects_stress_drawdown_cap(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"], "rotation_downtrend_min_momentum": 0.28,
                                "dynamic_sizing": {"enabled": True,
