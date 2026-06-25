@@ -561,6 +561,12 @@ class RotationDecider:
         self.recovery_confirmed_hold_sec = float(esc.get("confirmed_hold_seconds", 1800))
         self.recovery_confirmed_gross = float(esc.get("confirmed_gross_exposure_pct", 0.50))
         self.recovery_max_lb_dd = float(esc.get("max_leaderboard_drawdown_pct", 24.0))
+        self.recovery_min_score = float(esc.get("min_score", 0.27))
+        self.recovery_min_return_24h = float(esc.get("min_return_24h", 0.02))
+        self.recovery_min_x402 = float(esc.get("min_x402", 0.25))
+        self.recovery_min_cmc = float(esc.get("min_cmc", -0.05))
+        self.recovery_max_round_trip = float(esc.get("max_round_trip_loss_pct", 1.8))
+        self.recovery_max_risk = float(esc.get("max_token_risk_score", 30.0))
         ds = d.get("dynamic_sizing", {}) or {}
         self.dynamic_sizing = bool(ds.get("enabled", False))
         self.ds_low_score = float(ds.get("low_score", self.down_min_mom))
@@ -742,7 +748,7 @@ class RotationDecider:
         ages = [self._held_age_seconds(t, portfolio) for t in state.targets]
         if not ages or min(ages) < self.recovery_min_hold_sec:
             return state.gross
-        if not all(t in signals and self._scout_exception(signals[t], snapshot, state.quality)
+        if not all(self._surviving_recovery_target(t, state, signals, portfolio, snapshot)
                    for t in state.targets):
             return state.gross
 
@@ -750,6 +756,30 @@ class RotationDecider:
         if min(ages) >= self.recovery_confirmed_hold_sec:
             target = self.recovery_confirmed_gross
         return min(self.target_gross, max(state.gross, target))
+
+    def _surviving_recovery_target(self, token: str, state: StrategyState,
+                                   signals: dict[str, TokenSignal],
+                                   portfolio: dict, snapshot: dict) -> bool:
+        """A held scout can be topped up if it is still healthy, not freshly perfect.
+
+        New entries must clear the stricter scout/entry gate.  Existing recovery
+        holdings should not lose their scale-up path merely because the score
+        dipped a few bps while the route, x402, and 24h structure remain intact.
+        """
+        s = signals.get(token)
+        if s is None or token not in state.validated:
+            return False
+        if self.exit_gate.reason(s, state, snapshot, portfolio):
+            return False
+        d = snapshot.get(token, {})
+        return (
+            float(s.score) >= self.recovery_min_score
+            and float(d.get("return_24h", 0.0) or 0.0) >= self.recovery_min_return_24h
+            and float(d.get("x402_token_score", 0.0) or 0.0) >= self.recovery_min_x402
+            and float(d.get("cmc_score", 0.0) or 0.0) >= self.recovery_min_cmc
+            and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= self.recovery_max_round_trip
+            and float(d.get("token_risk_score", 100.0) or 100.0) <= self.recovery_max_risk
+        )
 
     def _high_conviction_target(self, token: str, signals: dict[str, TokenSignal],
                                 snapshot: dict, quality: dict[str, float],

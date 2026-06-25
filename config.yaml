@@ -197,6 +197,12 @@ decision:
     confirmed_hold_seconds: 1800
     confirmed_gross_exposure_pct: 0.50
     max_leaderboard_drawdown_pct: 24.0
+    min_score: 0.27
+    min_return_24h: 0.02
+    min_x402: 0.25
+    min_cmc: -0.05
+    max_round_trip_loss_pct: 1.8
+    max_token_risk_score: 30
   held_exit:
     enabled: true
     # Held-token health floor. A current position may stay below the new-entry

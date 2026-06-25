@@ -761,7 +761,7 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
                                                   "weak_cmc_gross_cap": 0.30}}}
     d = RotationDecider(cfg)
     d._now = 10_000
-    signals = {"XPL": _sig("XPL", 0.335, Regime.TREND_DOWN)}
+    signals = {"XPL": _sig("XPL", 0.290, Regime.TREND_DOWN)}
     snap = _snap("XPL")
     snap["XPL"].update({
         "return_6h": -0.010,
@@ -771,7 +771,7 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
         "cmc_volume_24h": 20_000_000,
         "cmc_volume_change_24h": 1.5,
         "vol_adjusted_return": 3.0,
-        "cmc_score": 1.0,
+        "cmc_score": -0.01,
         "x402_token_score": 0.35,
         "token_risk_score": 10,
         "round_trip_loss_pct": 1.4,
