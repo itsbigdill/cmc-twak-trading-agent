@@ -125,6 +125,64 @@ def test_rotation_targets_sixty_percent_gross_across_two_names(cfg):
     assert all(x["size_pct"] == pytest.approx(0.30) for x in buys)
 
 
+def test_held_target_underweight_gets_topped_up(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "target_gross_exposure_pct": 0.55,
+                               "held_exit": {"enabled": True,
+                                             "floor_score_downtrend": 0.20,
+                                             "min_quality_downtrend": -1.0,
+                                             "min_return_6h_downtrend": -0.20},
+                               "dynamic_sizing": {"enabled": False}}}
+    d = RotationDecider(cfg)
+    signals = {"LAB": _sig("LAB", 0.41, Regime.TREND_DOWN)}
+    snap = _snap("LAB")
+    snap["LAB"].update({"return_6h": 0.01, "return_24h": 0.12})
+    portfolio = _portfolio_with_marks(
+        {"LAB": 0.33},
+        values={"LAB": 5.3},
+        avg_prices={"LAB": 16.2},
+    )
+    portfolio["cash_usd"] = 13.9
+    portfolio["total_equity_usd"] = 19.2
+    buys = [x for x in d.decide(snap, signals, portfolio,
+                                {"signal_streaks": {"LAB": 3}})
+            if x["token"] == "LAB" and x["action"] == "buy"]
+    assert len(buys) == 1
+    assert buys[0]["size_pct"] == pytest.approx((19.2 * 0.55 - 5.3) / 13.9, abs=1e-4)
+
+
+def test_tiny_held_target_top_up_is_suppressed(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 2,
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "target_gross_exposure_pct": 0.55,
+                               "min_rebalance_usd": 1.0,
+                               "entry_filter": {"enabled": False},
+                               "held_exit": {"enabled": True,
+                                             "floor_score_downtrend": 0.20,
+                                             "min_quality_downtrend": -1.0,
+                                             "min_return_6h_downtrend": -0.20},
+                               "dynamic_sizing": {"enabled": False}},
+           "twak": {**cfg["twak"], "min_swap_quote": 0.25}}
+    d = RotationDecider(cfg)
+    signals = {"LAB": _sig("LAB", 0.41, Regime.TREND_DOWN),
+               "ETH": _sig("ETH", 0.34, Regime.TREND_DOWN)}
+    snap = _snap("LAB", "ETH")
+    snap["LAB"].update({"return_6h": 0.01, "return_24h": 0.12})
+    snap["ETH"].update({"return_6h": 0.02, "return_24h": 0.04})
+    portfolio = _portfolio_with_marks(
+        {"LAB": 0.33},
+        values={"LAB": 5.27},
+        avg_prices={"LAB": 16.2},
+    )
+    portfolio["cash_usd"] = 13.9
+    portfolio["total_equity_usd"] = 19.2
+    out = d.decide(snap, signals, portfolio, {"signal_streaks": {"LAB": 3, "ETH": 3}})
+    assert not any(x["token"] == "LAB" and x["action"] == "buy" for x in out)
+
+
 def test_divergent_leaderboard_mark_does_not_trigger_top5_mode(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"], "rotation_top_k": 2,
                                "target_gross_exposure_pct": 0.60,

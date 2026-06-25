@@ -355,6 +355,12 @@ class SizingPolicy:
         cash = max(portfolio["cash_usd"], 0.0)
         needed = max(0.0, state.target_value
                      - portfolio.get("position_values", {}).get(signal.token, 0.0))
+        min_buy_usd = max(
+            float(self.strategy.cfg.get("twak", {}).get("min_swap_quote", 0.25)),
+            float(self.strategy.cfg.get("decision", {}).get("min_rebalance_usd", 1.0)),
+        )
+        if needed < min_buy_usd:
+            return None
         size_pct = needed / cash if cash > 0 else 0.0
         if size_pct <= 0:
             return None
@@ -937,16 +943,18 @@ class RotationDecider:
             if intent:
                 decisions.append(intent.as_decision())
 
-        for s in state.ranked:                 # enter/keep targets
-            if s.token in state.targets and s.token not in state.held:
+        for s in state.ranked:                 # enter/top-up/keep targets
+            if s.token not in state.targets:
+                continue
+            if s.token not in state.held:
                 # hysteresis: skip names we rotated out of within the cooldown (anti-churn)
                 reentry_reason = self.anti_churn.reentry_reject_reason(s.token, portfolio)
                 if reentry_reason:
                     state.rejects[s.token] = reentry_reason
                     continue
-                intent = self.sizing.buy_intent(s, state, snapshot, portfolio)
-                if intent:
-                    decisions.append(intent.as_decision())
+            intent = self.sizing.buy_intent(s, state, snapshot, portfolio)
+            if intent:
+                decisions.append(intent.as_decision())
         suppression = None
         if not decisions:
             if state.targets and state.held and set(state.targets).issubset(state.held):
