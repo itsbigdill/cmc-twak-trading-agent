@@ -1037,6 +1037,7 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
                                                        "scale_gross_exposure_pct": 0.36,
                                                        "confirmed_hold_seconds": 1800,
                                                        "confirmed_gross_exposure_pct": 0.50,
+                                                       "min_return_6h": -0.005,
                                                        "max_leaderboard_drawdown_pct": 24.0},
                                "dynamic_sizing": {"enabled": True,
                                                   "low_score": 0.28,
@@ -1053,7 +1054,7 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
     signals = {"XPL": _sig("XPL", 0.290, Regime.TREND_DOWN)}
     snap = _snap("XPL")
     snap["XPL"].update({
-        "return_6h": -0.010,
+        "return_6h": -0.004,
         "return_24h": 0.055,
         "cmc_pct_24h": 0.055,
         "cmc_pct_7d": 0.10,
@@ -1083,6 +1084,76 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
     buy = next(x for x in out if x["token"] == "XPL" and x["action"] == "buy")
     assert buy["size_pct"] == pytest.approx((20.0 * 0.36 - 3.60) / 16.4, rel=1e-3)
     assert "gross=0.36" in buy["rationale"]
+
+
+def test_held_recovery_target_does_not_top_up_with_bad_6h(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.275,
+                               "target_gross_exposure_pct": 0.55,
+                               "entry_filter": {**cfg["decision"]["entry_filter"],
+                                                "min_return_6h_downtrend": -0.005,
+                                                "max_return_6h_downtrend": 0.08},
+                               "recovery_escalation": {**cfg["decision"]["recovery_escalation"],
+                                                       "enabled": True,
+                                                       "rank_above": 20,
+                                                       "min_gap_to_top5_pct": 5.0,
+                                                       "min_hold_seconds": 600,
+                                                       "scale_gross_exposure_pct": 0.50,
+                                                       "confirmed_hold_seconds": 1800,
+                                                       "confirmed_gross_exposure_pct": 0.50,
+                                                       "min_score": 0.27,
+                                                       "min_return_6h": -0.005,
+                                                       "min_return_24h": 0.02,
+                                                       "min_x402": 0.25,
+                                                       "min_cmc": -0.05,
+                                                       "max_round_trip_loss_pct": 1.8,
+                                                       "max_token_risk_score": 30,
+                                                       "max_leaderboard_drawdown_pct": 24.0},
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.30,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.50,
+                                                  "risk_adjusted_enabled": False}}}
+    d = RotationDecider(cfg)
+    d._now = 10_000
+    signals = {"UAI": _sig("UAI", 0.3996, Regime.TREND_DOWN)}
+    snap = _snap("UAI")
+    snap["UAI"].update({
+        "return_6h": -0.017,
+        "return_24h": 0.024,
+        "cmc_pct_1h": -0.011,
+        "cmc_pct_24h": 0.042,
+        "cmc_pct_7d": -0.024,
+        "cmc_volume_24h": 6_700_000,
+        "cmc_volume_change_24h": 0.4,
+        "vol_adjusted_return": 1.1,
+        "cmc_score": 0.08,
+        "x402_token_score": 0.331,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.37,
+    })
+    portfolio = _portfolio_with_timing(
+        {"UAI": 22.55},
+        values={"UAI": 6.80},
+        avg_prices={"UAI": 0.306},
+        opened_ts={"UAI": 10_000 - 3600},
+    )
+    portfolio["total_equity_usd"] = 19.0
+    portfolio["cash_usd"] = 12.2
+    out = d.decide(snap, signals, portfolio,
+                   {"signal_streaks": {"UAI": 76},
+                    "leaderboard_rank": 34,
+                    "leaderboard_return_pct": -9.8,
+                    "leaderboard_top5_return_pct": -0.09,
+                    "leaderboard_drawdown_pct": 17.7,
+                    "executable_return_pct": -9.8})
+
+    assert not any(x["token"] == "UAI" and x["action"] == "buy" for x in out)
+    assert d.last_debug["rejects"]["UAI"].startswith("SizingPolicy:top_up_blocked:bad_6h")
 
 
 def test_surviving_cmc_scout_without_x402_can_scale_after_hold(cfg):

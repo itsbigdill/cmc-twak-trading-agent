@@ -375,6 +375,15 @@ class SizingPolicy:
             return None
         conf = min(0.95, 0.55 + abs(signal.score) / 2)
         entry_kind = self.strategy.entry_gate.kind(signal, state, snapshot)
+        if signal.token in state.held:
+            fresh, reason = self.strategy._entry_classification(
+                signal, state.regime, snapshot, state.quality
+            )
+            if not fresh and not self.strategy._surviving_recovery_target(
+                signal.token, state, {signal.token: signal}, portfolio, snapshot
+            ):
+                state.rejects[signal.token] = f"SizingPolicy:top_up_blocked:{reason}"
+                return None
         return TradeIntent(
             token=signal.token,
             action="buy",
@@ -580,6 +589,7 @@ class RotationDecider:
         self.recovery_confirmed_gross = float(esc.get("confirmed_gross_exposure_pct", 0.50))
         self.recovery_max_lb_dd = float(esc.get("max_leaderboard_drawdown_pct", 24.0))
         self.recovery_min_score = float(esc.get("min_score", 0.27))
+        self.recovery_min_return_6h = float(esc.get("min_return_6h", -0.005))
         self.recovery_min_return_24h = float(esc.get("min_return_24h", 0.02))
         self.recovery_min_x402 = float(esc.get("min_x402", 0.25))
         self.recovery_min_cmc = float(esc.get("min_cmc", -0.05))
@@ -884,6 +894,7 @@ class RotationDecider:
         max_route = max(self.recovery_max_round_trip, self.scout_max_round_trip)
         return (
             float(s.score) >= self.recovery_min_score
+            and float(d.get("return_6h", 0.0) or 0.0) >= self.recovery_min_return_6h
             and float(d.get("return_24h", 0.0) or 0.0) >= self.recovery_min_return_24h
             and confirmation_ok
             and cmc >= self.recovery_min_cmc
