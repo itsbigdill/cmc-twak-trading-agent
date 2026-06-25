@@ -125,7 +125,7 @@ decision:
                                    # name (NOT 100% cash: a cash week scores ~0% in a rank-by-
                                    # return contest). Backtest: this BEAT pure-cash in the bear
                                    # year (-9.7% vs -12.6%). Stops + daily pause + kill cap risk.
-  rotation_downtrend_min_momentum: 0.28
+  rotation_downtrend_min_momentum: 0.275
   rotation_reentry_cooldown_hours: 4     # hysteresis: after rotating OUT of a name, wait this
                                          # many HOURS before rotating back IN. Time-based, so it is
                                          # consistent in live and backtest. Kills the buy->sell->buy
