@@ -881,6 +881,15 @@ class RotationDecider:
         x402 = float(d.get("x402_token_score", 0.0) or 0.0)
         cmc = float(d.get("cmc_score", 0.0) or 0.0)
         quality = float(state.quality.get(token, -1.0))
+        c1 = float(d.get("cmc_pct_1h", 0.0) or 0.0)
+        c24 = float(d.get("cmc_pct_24h", 0.0) or 0.0)
+        c7 = float(d.get("cmc_pct_7d", 0.0) or 0.0)
+        if (
+            c1 > self.max_entry_cmc_1h_down
+            or c24 > self.max_entry_cmc_24h_down
+            or c7 > self.max_entry_cmc_7d_down
+        ):
+            return False
         # x402 coverage is sparse.  If a position was admitted as a tiny
         # CMC/TWAK-confirmed scout, let it scale only after surviving the minimum
         # hold and still showing very high CMC + cross-sectional quality.  This

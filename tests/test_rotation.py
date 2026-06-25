@@ -1234,6 +1234,78 @@ def test_surviving_cmc_scout_without_x402_can_scale_after_hold(cfg):
     assert "gross=0.36" in buy["rationale"]
 
 
+def test_held_recovery_target_does_not_top_up_late_hot(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.275,
+                               "target_gross_exposure_pct": 0.55,
+                               "entry_filter": {**cfg["decision"]["entry_filter"],
+                                                "max_cmc_pct_1h_downtrend": 0.03,
+                                                "max_cmc_pct_24h_downtrend": 0.18,
+                                                "max_cmc_pct_7d_downtrend": 0.45},
+                               "recovery_escalation": {**cfg["decision"]["recovery_escalation"],
+                                                       "enabled": True,
+                                                       "rank_above": 20,
+                                                       "min_gap_to_top5_pct": 5.0,
+                                                       "min_hold_seconds": 600,
+                                                       "scale_gross_exposure_pct": 0.36,
+                                                       "confirmed_hold_seconds": 1800,
+                                                       "confirmed_gross_exposure_pct": 0.50,
+                                                       "min_score": 0.27,
+                                                       "min_return_6h": -0.005,
+                                                       "min_return_24h": 0.02,
+                                                       "min_x402": 0.25,
+                                                       "min_cmc": -0.05,
+                                                       "max_round_trip_loss_pct": 1.8,
+                                                       "max_token_risk_score": 30,
+                                                       "max_leaderboard_drawdown_pct": 24.0},
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.20,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55,
+                                                  "risk_adjusted_enabled": False}}}
+    d = RotationDecider(cfg)
+    d._now = 10_000
+    signals = {"BAS": _sig("BAS", 0.300, Regime.TREND_DOWN)}
+    snap = _snap("BAS")
+    snap["BAS"].update({
+        "return_6h": 0.040,
+        "return_24h": 0.110,
+        "cmc_pct_1h": 0.044,  # already vertical; hold winner, don't chase top-up
+        "cmc_pct_24h": 0.129,
+        "cmc_pct_7d": 0.440,
+        "cmc_volume_24h": 30_000_000,
+        "cmc_volume_change_24h": 0.19,
+        "vol_adjusted_return": 1.0,
+        "distance_from_48h_high": -0.13,
+        "cmc_score": 1.0,
+        "x402_token_score": 0.28,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.41,
+    })
+    portfolio = _portfolio_with_timing(
+        {"BAS": 32.0},
+        values={"BAS": 1.40},
+        avg_prices={"BAS": 0.043},
+        opened_ts={"BAS": 10_000 - 3600},
+    )
+    portfolio["total_equity_usd"] = 19.0
+    portfolio["cash_usd"] = 17.6
+    out = d.decide(snap, signals, portfolio,
+                   {"signal_streaks": {"BAS": 30},
+                    "leaderboard_rank": 34,
+                    "leaderboard_return_pct": -9.9,
+                    "leaderboard_top5_return_pct": 0.03,
+                    "leaderboard_drawdown_pct": 17.9,
+                    "executable_return_pct": -9.9})
+
+    assert not any(x["token"] == "BAS" and x["action"] == "buy" for x in out)
+    assert d.last_debug["rejects"]["BAS"].startswith("SizingPolicy:top_up_blocked:late_hot_1h")
+
+
 def test_fresh_scout_does_not_scale_before_min_hold(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,
