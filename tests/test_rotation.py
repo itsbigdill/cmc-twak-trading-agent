@@ -974,6 +974,84 @@ def test_surviving_scout_scales_up_while_far_behind(cfg):
     assert "gross=0.36" in buy["rationale"]
 
 
+def test_surviving_cmc_scout_without_x402_can_scale_after_hold(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "rotation_downtrend_topk": 1,
+                               "rotation_downtrend_min_momentum": 0.28,
+                               "target_gross_exposure_pct": 0.55,
+                               "entry_filter": {**cfg["decision"]["entry_filter"],
+                                                "scout_exception_enabled": True,
+                                                "scout_exposure_pct": 0.18,
+                                                "scout_min_quality_downtrend": 0.65,
+                                                "scout_max_round_trip_loss_pct": 2.0},
+                               "recovery_escalation": {**cfg["decision"]["recovery_escalation"],
+                                                       "enabled": True,
+                                                       "rank_above": 20,
+                                                       "min_gap_to_top5_pct": 5.0,
+                                                       "min_hold_seconds": 600,
+                                                       "scale_gross_exposure_pct": 0.36,
+                                                       "confirmed_hold_seconds": 1800,
+                                                       "confirmed_gross_exposure_pct": 0.50,
+                                                       "max_leaderboard_drawdown_pct": 24.0},
+                               "dynamic_sizing": {"enabled": True,
+                                                  "low_score": 0.28,
+                                                  "mid_score": 0.32,
+                                                  "high_score": 0.38,
+                                                  "low_exposure_pct": 0.20,
+                                                  "mid_exposure_pct": 0.40,
+                                                  "high_exposure_pct": 0.55}}}
+    d = RotationDecider(cfg)
+    d._now = 10_000
+    signals = {
+        "ETH": _sig("ETH", 0.300, Regime.TREND_DOWN),
+        "CAKE": _sig("CAKE", 0.120, Regime.TREND_DOWN),
+        "LINK": _sig("LINK", 0.080, Regime.TREND_DOWN),
+    }
+    snap = _snap("ETH", "CAKE", "LINK")
+    snap["ETH"].update({
+        "return_6h": 0.050,
+        "return_24h": 0.140,
+        "cmc_pct_1h": -0.002,
+        "cmc_pct_24h": 0.110,
+        "cmc_pct_7d": 0.150,
+        "cmc_volume_24h": 40_000_000,
+        "cmc_volume_change_24h": 1.5,
+        "vol_adjusted_return": 4.0,
+        "distance_from_48h_high": -0.02,
+        "cmc_score": 0.95,
+        "x402_token_score": 0.0,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.9,
+    })
+    for token in ("CAKE", "LINK"):
+        snap[token].update({
+            "return_6h": -0.04,
+            "return_24h": -0.02,
+            "cmc_score": -0.2,
+            "x402_token_score": 0.0,
+            "token_risk_score": 10,
+            "round_trip_loss_pct": 1.2,
+        })
+    portfolio = _portfolio_with_timing(
+        {"ETH": 1.0},
+        values={"ETH": 3.60},
+        avg_prices={"ETH": 3.70},
+        opened_ts={"ETH": 10_000 - 700},
+    )
+    portfolio["total_equity_usd"] = 20.0
+    portfolio["cash_usd"] = 16.4
+    out = d.decide(snap, signals, portfolio,
+                   {"signal_streaks": {"ETH": 3},
+                    "leaderboard_rank": 34,
+                    "leaderboard_return_pct": -9.1,
+                    "leaderboard_top5_return_pct": 0.1,
+                    "leaderboard_drawdown_pct": 17.3,
+                    "executable_return_pct": -9.1})
+    buy = next(x for x in out if x["token"] == "ETH" and x["action"] == "buy")
+    assert buy["size_pct"] == pytest.approx((20.0 * 0.36 - 3.60) / 16.4, rel=1e-3)
+    assert "gross=0.36" in buy["rationale"]
+
+
 def test_fresh_scout_does_not_scale_before_min_hold(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,

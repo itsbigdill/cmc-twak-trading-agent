@@ -857,7 +857,8 @@ class RotationDecider:
 
         New entries must clear the stricter scout/entry gate.  Existing recovery
         holdings should not lose their scale-up path merely because the score
-        dipped a few bps while the route, x402, and 24h structure remain intact.
+        dipped a few bps while the route, confirmation source, and 24h structure
+        remain intact.
         """
         s = signals.get(token)
         if s is None or token not in state.validated:
@@ -865,12 +866,26 @@ class RotationDecider:
         if self.exit_gate.reason(s, state, snapshot, portfolio):
             return False
         d = snapshot.get(token, {})
+        x402 = float(d.get("x402_token_score", 0.0) or 0.0)
+        cmc = float(d.get("cmc_score", 0.0) or 0.0)
+        quality = float(state.quality.get(token, -1.0))
+        # x402 coverage is sparse.  If a position was admitted as a tiny
+        # CMC/TWAK-confirmed scout, let it scale only after surviving the minimum
+        # hold and still showing very high CMC + cross-sectional quality.  This
+        # keeps the x402-backed path intact while preventing CMC-weak names from
+        # using the broader no-x402 recovery lane.
+        confirmation_ok = (
+            x402 >= self.recovery_min_x402
+            or (cmc >= max(self.recovery_min_cmc, 0.75)
+                and quality >= max(self.scout_min_quality_down, 0.65))
+        )
+        max_route = max(self.recovery_max_round_trip, self.scout_max_round_trip)
         return (
             float(s.score) >= self.recovery_min_score
             and float(d.get("return_24h", 0.0) or 0.0) >= self.recovery_min_return_24h
-            and float(d.get("x402_token_score", 0.0) or 0.0) >= self.recovery_min_x402
-            and float(d.get("cmc_score", 0.0) or 0.0) >= self.recovery_min_cmc
-            and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= self.recovery_max_round_trip
+            and confirmation_ok
+            and cmc >= self.recovery_min_cmc
+            and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= max_route
             and float(d.get("token_risk_score", 100.0) or 100.0) <= self.recovery_max_risk
         )
 
