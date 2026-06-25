@@ -663,16 +663,87 @@ class RotationDecider:
             "held": bool(state and signal.token in state.held),
             "target": bool(state and signal.token in state.targets),
         }
-        for k in ("return_6h", "return_24h", "cmc_pct_1h", "cmc_pct_24h",
-                  "cmc_pct_7d", "x402_token_score", "cmc_score",
-                  "round_trip_loss_pct", "token_risk_score"):
+        for k in ("return_6h", "return_24h", "vol_adjusted_return",
+                  "distance_from_48h_high", "cmc_id", "cmc_rank",
+                  "cmc_pct_1h", "cmc_pct_24h", "cmc_pct_7d",
+                  "cmc_volume_24h", "cmc_volume_change_24h",
+                  "cmc_rsi14", "cmc_macd_state", "cmc_ema_trend",
+                  "cmc_top10_holder_pct", "token_news_sentiment",
+                  "x402_token_score", "cmc_score", "round_trip_loss_pct",
+                  "risk_level", "token_risk_score", "history_bars"):
             if k in d:
                 out[k] = d.get(k)
         if state and signal.token in state.rejects:
             out["reject_reason"] = state.rejects[signal.token]
+            out["gate"] = str(state.rejects[signal.token]).split(":", 1)[0]
         if state and signal.token in state.anti_churn:
             out["anti_churn"] = state.anti_churn[signal.token]
+            out["gate"] = "AntiChurn"
+        if not out.get("gate"):
+            if out["held"]:
+                out["gate"] = "Held"
+            elif out["target"]:
+                out["gate"] = "Target"
+            elif out["validated"]:
+                out["gate"] = "Validated"
+            else:
+                out["gate"] = "RuntimeValidation"
         return out
+
+    def _instrument_coverage(self, state: StrategyState, snapshot: dict) -> dict:
+        """Compact per-tick coverage for the tools feeding token decisions."""
+        tokens = [s.token for s in state.candidates]
+
+        def has(token: str, *keys: str) -> bool:
+            d = snapshot.get(token, {}) or {}
+            return any(d.get(k) not in (None, "", {}) for k in keys)
+
+        return {
+            "candidates": len(tokens),
+            "runtime_validated": len(state.validated),
+            "twak_history": sum(1 for t in tokens if has(t, "history_bars", "return_6h")),
+            "twak_round_trip": sum(1 for t in tokens if has(t, "round_trip_loss_pct")),
+            "x402": sum(1 for t in tokens if has(t, "x402_token_score")),
+            "cmc_quote": sum(1 for t in tokens if has(t, "cmc_id", "cmc_pct_24h")),
+            "cmc_technicals": sum(1 for t in tokens
+                                   if has(t, "cmc_rsi14", "cmc_macd_state", "cmc_ema_trend")),
+            "cmc_holder_metrics": sum(1 for t in tokens if has(t, "cmc_top10_holder_pct")),
+            "token_news": sum(1 for t in tokens if has(t, "token_news_sentiment")),
+        }
+
+    def _candidate_audit(self, state: StrategyState, decisions: list[dict],
+                         snapshot: dict) -> list[dict]:
+        """Per-token verdicts for operator/debug visibility.
+
+        Trading decisions are still made by EntryGate/ExitGate/Sizing/AntiChurn.
+        This audit simply records why strong names did or did not survive those
+        layers, so the operator can see whether a token was stopped by TWAK
+        validation, CMC/late-chase filters, anti-churn, sizing, or AI review.
+        """
+        limit = int(self.cfg.get("dashboard", {}).get(
+            "candidate_audit_limit",
+            self.cfg.get("decision", {}).get("candidate_audit_limit", 30),
+        ))
+        if limit <= 0:
+            return []
+        by_token = {s.token: s for s in state.ranked}
+        selected: list[TokenSignal] = []
+
+        def add(sig: TokenSignal | None) -> None:
+            if sig and all(existing.token != sig.token for existing in selected):
+                selected.append(sig)
+
+        for s in state.ranked[:limit]:
+            add(s)
+        for s in sorted(state.ranked, key=lambda sig: sig.score, reverse=True)[:max(8, limit // 2)]:
+            add(s)
+        for token in set(state.held) | set(state.targets) | set(state.eligible):
+            add(by_token.get(token))
+        for d in decisions:
+            add(by_token.get(d.get("token")))
+
+        rows = [self._debug_token(s, state, snapshot) for s in selected if s]
+        return [r for r in rows if r][:limit]
 
     def _set_debug(self, state: StrategyState | None, decisions: list[dict],
                    snapshot: dict, suppression_source: str | None = None) -> None:
@@ -701,6 +772,8 @@ class RotationDecider:
             "target_value": round(float(state.target_value), 4),
             "top5_active": state.top5_active,
             "top_ranked": top,
+            "candidate_audit": self._candidate_audit(state, decisions, snapshot),
+            "instrument_coverage": self._instrument_coverage(state, snapshot),
             "rejects": {k: v for k, v in state.rejects.items() if k in debug_tokens},
             "anti_churn": dict(state.anti_churn),
             "candidate_decisions": decisions,

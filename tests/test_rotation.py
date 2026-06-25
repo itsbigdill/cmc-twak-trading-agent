@@ -828,6 +828,77 @@ def test_strategy_debug_includes_targets_outside_top_ranked_window(cfg):
     assert "LAB" in debug_tokens
 
 
+def test_strategy_debug_records_per_token_candidate_audit_and_tool_coverage(cfg):
+    cfg = {**cfg,
+           "decision": {**cfg["decision"],
+                        "candidate_audit_limit": 4,
+                        "rotation_downtrend_min_momentum": 0.28,
+                        "entry_filter": {**cfg["decision"]["entry_filter"],
+                                         "enabled": True,
+                                         "min_quality_downtrend": -1.0},
+                        "dynamic_sizing": {"enabled": False}}}
+    d = RotationDecider(cfg)
+    signals = {
+        "ETH": _sig("ETH", 0.34, Regime.TREND_DOWN),
+        "LINK": _sig("LINK", 0.33, Regime.TREND_DOWN),
+        "DOGE": _sig("DOGE", 0.12, Regime.TREND_DOWN),
+    }
+    snap = _snap("ETH", "LINK", "DOGE")
+    snap["ETH"].update({
+        "return_6h": 0.10,          # rejected as too late/hot
+        "return_24h": 0.20,
+        "cmc_id": "1027",
+        "cmc_pct_1h": 0.04,
+        "cmc_pct_24h": 0.08,
+        "cmc_pct_7d": 0.15,
+        "cmc_volume_24h": 20_000_000,
+        "cmc_volume_change_24h": 0.4,
+        "cmc_rsi14": 72,
+        "cmc_macd_state": "bullish",
+        "cmc_top10_holder_pct": 0.20,
+        "token_news_sentiment": 0.1,
+        "cmc_score": 0.5,
+        "x402_token_score": 0.3,
+        "token_risk_score": 10,
+    })
+    snap["LINK"].update({
+        "return_6h": 0.01,
+        "return_24h": 0.04,
+        "cmc_id": "1975",
+        "cmc_pct_1h": 0.0,
+        "cmc_pct_24h": 0.03,
+        "cmc_pct_7d": 0.10,
+        "cmc_volume_24h": 30_000_000,
+        "cmc_volume_change_24h": 0.2,
+        "cmc_rsi14": 55,
+        "cmc_macd_state": "bullish",
+        "cmc_top10_holder_pct": 0.15,
+        "token_news_sentiment": 0.2,
+        "cmc_score": 0.6,
+        "x402_token_score": 0.35,
+        "token_risk_score": 10,
+    })
+
+    d.decide(snap, signals, _portfolio(), {"signal_streaks": {"ETH": 3, "LINK": 3}})
+
+    audit = d.last_debug["candidate_audit"]
+    by_token = {row["token"]: row for row in audit}
+    assert {"ETH", "LINK"}.issubset(by_token)
+    assert by_token["ETH"]["gate"] == "EntryGate"
+    assert by_token["ETH"]["reject_reason"].startswith("EntryGate:bad_6h")
+    assert by_token["ETH"]["cmc_id"] == "1027"
+    assert by_token["LINK"]["target"] is True
+    assert by_token["LINK"]["gate"] in {"Target", "Validated"}
+    coverage = d.last_debug["instrument_coverage"]
+    assert coverage["candidates"] == 3
+    assert coverage["runtime_validated"] == 3
+    assert coverage["twak_round_trip"] == 3
+    assert coverage["cmc_quote"] >= 2
+    assert coverage["cmc_technicals"] >= 2
+    assert coverage["cmc_holder_metrics"] >= 2
+    assert coverage["x402"] >= 2
+
+
 def test_surviving_scout_scales_up_while_far_behind(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,

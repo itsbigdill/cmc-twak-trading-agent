@@ -303,6 +303,8 @@ def build_data(with_wallet=True, with_market=True):
         "anti_churn": strategy_debug.get("anti_churn") or {},
         "ai_review": strategy_debug.get("ai_review") or {},
         "top_ranked": (strategy_debug.get("top_ranked") or [])[:5],
+        "candidate_audit": (strategy_debug.get("candidate_audit") or [])[:12],
+        "instrument_coverage": strategy_debug.get("instrument_coverage") or {},
     } if latest_trace else {}
     reasoning = [{"token": r.get("token"), "action": r.get("action"),
                   "rationale": (r.get("rationale") or "")[:150]}
@@ -317,10 +319,19 @@ def build_data(with_wallet=True, with_market=True):
         ai = trace_summary.get("ai_review") or {}
         vetoed = ai.get("vetoed") or []
         extra = f"; AI veto: {', '.join(v.get('token','') for v in vetoed if v.get('token'))}" if vetoed else ""
+        audit = trace_summary.get("candidate_audit") or []
+        blocked = [a for a in audit if a.get("reject_reason")]
+        blocked_txt = " · ".join(
+            f"{a.get('token')} {a.get('gate') or 'Gate'}"
+            for a in blocked[:3] if a.get("token")
+        )
         reasoning.insert(0, {
             "token": "",
             "action": (trace_summary.get("final_action") or "hold").split(",")[0],
-            "rationale": (f"{src}" + (f"; radar: {top_txt}" if top_txt else "") + extra)[:180],
+            "rationale": (f"{src}"
+                          + (f"; radar: {top_txt}" if top_txt else "")
+                          + (f"; blocked: {blocked_txt}" if blocked_txt else "")
+                          + extra)[:220],
         })
     return {
         "address": cfg["twak"]["agent_address"], "agent_id": cfg.get("bnb_sdk", {}).get("agent_id", ""),
