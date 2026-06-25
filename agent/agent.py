@@ -435,6 +435,13 @@ def _exec_and_log(executor, state, cfg, tick_id, token, action, size_usd, price,
         # realized P&L booked by this trade (closes/sells); ~0 for opens
         realized = round(state.realized_pnl - before, 4)
         state.clear_execution_failure(token)
+        if action in ("close", "sell"):
+            # Persist the re-entry cooldown for every full exit, not only
+            # paired rotation closes.  Health exits/stops are exactly the cases
+            # where a process restart must not let the strategy buy the same
+            # token back a few minutes later.
+            state.rotation_exited_at[token] = now_ts
+            state.save(cfg["paths"]["state_file"])
         log.event("fill", token=token, action=action,
                   size_usd=round(result.quote_amount, 8), tx_hash=result.tx_hash,
                   reason=reason, realized=realized,

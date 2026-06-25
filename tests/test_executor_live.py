@@ -202,6 +202,40 @@ def test_orchestrator_does_not_log_or_count_skipped_execution(cfg, tmp_path):
     assert any(r["kind"] == "execution_noop" for r in log.rows)
 
 
+def test_full_exit_persists_reentry_cooldown(cfg, tmp_path):
+    cfg = live_cfg(cfg, tmp_path)
+    state = PortfolioState(cash_usd=10)
+    log = MemoryLog()
+
+    class FilledExecutor:
+        def execute(self, **kwargs):
+            return ExecutionResult("filled", "oid", "0xhash", 1.0, 2.0, 2.0)
+
+    ok = _exec_and_log(FilledExecutor(), state, cfg, "tick", "RAY", "close",
+                       0, 0.5, log, "health exit", now=1234)
+
+    assert ok
+    assert state.rotation_exited_at["RAY"] == 1234
+    saved = PortfolioState.load(cfg["paths"]["state_file"])
+    assert saved.rotation_exited_at["RAY"] == 1234
+
+
+def test_trim_does_not_arm_reentry_cooldown(cfg, tmp_path):
+    cfg = live_cfg(cfg, tmp_path)
+    state = PortfolioState(cash_usd=10)
+    log = MemoryLog()
+
+    class FilledExecutor:
+        def execute(self, **kwargs):
+            return ExecutionResult("filled", "oid", "0xhash", 1.0, 1.0, 1.0)
+
+    ok = _exec_and_log(FilledExecutor(), state, cfg, "tick", "RAY", "trim",
+                       1, 0.5, log, "micro profit", now=1234)
+
+    assert ok
+    assert "RAY" not in state.rotation_exited_at
+
+
 def test_ambiguous_execution_blocks_token_and_does_not_count_fill(cfg, tmp_path):
     cfg = live_cfg(cfg, tmp_path)
     state = PortfolioState(cash_usd=10)
