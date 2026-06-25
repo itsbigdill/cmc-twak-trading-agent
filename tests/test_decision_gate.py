@@ -169,6 +169,40 @@ def test_llm_cash_preservation_veto_still_blocks_scout_with_hard_risk(monkeypatc
     assert LLMDecider(cfg, fallback=ScoutBase())
 
 
+def test_llm_hard_veto_is_candidate_specific_for_cash_override(cfg):
+    cfg = {**cfg, "llm": {**cfg["llm"], "second_gate": True,
+                          "cash_veto_override_enabled": True,
+                          "cash_veto_override_min_score": 0.30,
+                          "cash_veto_override_min_cmc": 0.20,
+                          "cash_veto_override_min_x402": 0.20}}
+    decider = LLMDecider(cfg)
+    base_debug = {"top_ranked": [
+        {"token": "XPL", "score": 0.40, "cmc_score": 0.30,
+         "x402_token_score": 0.30, "round_trip_loss_pct": 1.2,
+         "token_risk_score": 10, "return_6h": 0.01},
+        {"token": "LAB", "score": 0.34, "cmc_score": 0.35,
+         "x402_token_score": 0.28, "round_trip_loss_pct": 1.2,
+         "token_risk_score": 10, "return_6h": 0.01},
+    ]}
+    vetoed = [
+        {"token": "XPL", "rationale": "holder concentration risk"},
+        {"token": "LAB", "rationale": "trend_down preserve cash"},
+    ]
+
+    blocked = decider._cash_veto_override(
+        {"token": "XPL", "action": "buy", "size_pct": 0.3,
+         "confidence": 0.7, "rationale": "deterministic"},
+        base_debug, {"leaderboard_rank": 31, "leaderboard_drawdown_pct": 17.0}, vetoed)
+    allowed = decider._cash_veto_override(
+        {"token": "LAB", "action": "buy", "size_pct": 0.3,
+         "confidence": 0.7, "rationale": "deterministic"},
+        base_debug, {"leaderboard_rank": 31, "leaderboard_drawdown_pct": 17.0}, vetoed)
+
+    assert blocked is None
+    assert allowed["token"] == "LAB"
+    assert "cash-veto overridden" in allowed["rationale"]
+
+
 def test_deny_buy_lifts_only_after_executable_validation(cfg):
     cfg = {**cfg, "twak": {**cfg["twak"],
                            "token_contracts": {"ZETA": "0x1", "CAKE": "0x2"},

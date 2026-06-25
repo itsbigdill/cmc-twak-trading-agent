@@ -780,6 +780,54 @@ def test_liquid_confirmed_continuation_ignores_weak_volume_change_noise(cfg):
     assert "liquid_confirmed_continuation" in buys[0]["rationale"]
 
 
+def test_strategy_debug_includes_targets_outside_top_ranked_window(cfg):
+    cfg = {**cfg,
+           "twak": {**cfg["twak"],
+                    "token_contracts": {f"T{i}": f"0x{i:040x}" for i in range(10)}
+                                       | {"LAB": "0x00000000000000000000000000000000000000aa"},
+                    "deny_buy": [], "sell_only_tokens": []},
+           "decision": {**cfg["decision"],
+                        "rotation_downtrend_topk": 2,
+                        "rotation_downtrend_min_momentum": 0.28,
+                        "entry_filter": {**cfg["decision"]["entry_filter"],
+                                         "enabled": True,
+                                         "min_quality_downtrend": -1.0},
+                        "dynamic_sizing": {"enabled": False}}}
+    d = RotationDecider(cfg)
+    signals = {f"T{i}": _sig(f"T{i}", -0.2, Regime.TREND_DOWN) for i in range(10)}
+    signals["LAB"] = _sig("LAB", 0.33, Regime.TREND_DOWN)
+    snap = _snap(*signals)
+    for i in range(10):
+        snap[f"T{i}"].update({
+            "return_6h": 0.09 + i * 0.001,
+            "return_24h": 0.20 + i * 0.001,
+            "cmc_pct_1h": 0.0,
+            "cmc_pct_24h": 0.01,
+            "cmc_pct_7d": 0.01,
+            "cmc_volume_change_24h": 0.5,
+            "cmc_score": 0.9,
+            "x402_token_score": 0.0,
+        })
+    snap["LAB"].update({
+        "return_6h": 0.01,
+        "return_24h": 0.05,
+        "cmc_pct_1h": 0.0,
+        "cmc_pct_24h": 0.05,
+        "cmc_pct_7d": 0.05,
+        "cmc_volume_change_24h": 0.1,
+        "cmc_volume_24h": 20_000_000,
+        "cmc_score": 0.3,
+        "x402_token_score": 0.3,
+        "token_risk_score": 10,
+    })
+
+    d.decide(snap, signals, _portfolio(), {"signal_streaks": {"LAB": 3}})
+    debug_tokens = {row["token"] for row in d.last_debug["top_ranked"]}
+
+    assert "LAB" in d.last_debug["targets"]
+    assert "LAB" in debug_tokens
+
+
 def test_surviving_scout_scales_up_while_far_behind(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,

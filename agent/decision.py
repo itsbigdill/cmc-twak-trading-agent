@@ -683,7 +683,11 @@ class RotationDecider:
                 "candidate_decisions": decisions,
             }
             return
+        priority = set(state.held) | set(state.targets)
         top_signals = state.ranked[:8]
+        for s in state.ranked:
+            if s.token in priority and all(existing.token != s.token for existing in top_signals):
+                top_signals.append(s)
         top = [self._debug_token(s, state, snapshot) for s in top_signals]
         debug_tokens = {s.token for s in state.ranked[:20]} | set(state.held) | set(state.targets)
         self.last_debug = {
@@ -1240,7 +1244,12 @@ class LLMDecider:
             return None
         if candidate.get("action") != "buy":
             return None
-        veto_text = " ".join(str(v.get("rationale", "")) for v in vetoed).lower()
+        token = candidate.get("token")
+        veto_text = " ".join(
+            str(v.get("rationale", ""))
+            for v in vetoed
+            if v.get("token") == token
+        ).lower()
         hard_risk_words = (
             "no route", "route", "liquidity", "honeypot", "scam", "exploit",
             "hack", "holder", "whale", "concentration", "news risk", "delist",
@@ -1255,7 +1264,6 @@ class LLMDecider:
         if lb_dd is not None and float(lb_dd) >= max_dd:
             return None
 
-        token = candidate.get("token")
         details = {}
         for row in (base_debug.get("top_ranked") or []):
             if row.get("token") == token:
