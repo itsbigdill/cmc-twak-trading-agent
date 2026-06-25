@@ -806,6 +806,40 @@ def test_held_token_exits_when_short_momentum_breaks_in_downtrend(cfg):
     assert "rotate out" not in close["rationale"]
 
 
+def test_fresh_held_token_quality_exit_respects_min_hold(cfg):
+    cfg = {**cfg, "decision": {**cfg["decision"],
+                               "held_exit": {"enabled": True,
+                                             "floor_score_downtrend": 0.20,
+                                             "min_quality_downtrend": 0.99,
+                                             "min_return_6h_downtrend": -0.20,
+                                             "min_hold_seconds_downtrend": 2700},
+                               "dynamic_sizing": {"enabled": False}}}
+    d = RotationDecider(cfg)
+    d._now = 10_000
+    signals = {"LAB": _sig("LAB", 0.35, Regime.TREND_DOWN)}
+    snap = _snap("LAB")
+    snap["LAB"].update({"return_6h": 0.0, "return_24h": 0.02})
+
+    fresh = _portfolio_with_timing(
+        {"LAB": 1.0},
+        values={"LAB": 10.0},
+        avg_prices={"LAB": 10.0},
+        opened_ts={"LAB": 9_400},
+    )
+    out = d.decide(snap, signals, fresh, {"signal_streaks": {"LAB": 3}})
+    assert not any(x["token"] == "LAB" and x["action"] == "close" for x in out)
+
+    stale = _portfolio_with_timing(
+        {"LAB": 1.0},
+        values={"LAB": 10.0},
+        avg_prices={"LAB": 10.0},
+        opened_ts={"LAB": 7_000},
+    )
+    out = d.decide(snap, signals, stale, {"signal_streaks": {"LAB": 3}})
+    close = next(x for x in out if x["token"] == "LAB" and x["action"] == "close")
+    assert "quality" in close["rationale"]
+
+
 def test_held_token_micro_profit_take_trims_winner(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "held_exit": {"enabled": True,

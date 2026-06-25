@@ -964,7 +964,7 @@ class RotationDecider:
             r6 = float(d.get("return_6h", 0.0) or 0.0)
             pnl = self._held_pnl(token, portfolio)
             age_sec = self._held_age_seconds(token, portfolio)
-            if q < self.held_min_quality_down:
+            if q < self.held_min_quality_down and age_sec >= self.held_min_hold_sec_down:
                 return f"health exit: quality {q:.3f} < {self.held_min_quality_down:.3f}"
             if r6 < self.held_min_return_6h_down and age_sec >= self.held_min_hold_sec_down:
                 return f"health exit: 6h momentum {r6:.3f} < {self.held_min_return_6h_down:.3f}"
