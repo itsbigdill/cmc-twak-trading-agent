@@ -552,6 +552,22 @@ class RotationDecider:
             "scout_max_token_risk_score", 30.0))
         self.scout_min_volume = float(entry_cfg.get(
             "scout_min_volume_24h_usd", 5_000_000))
+        self.liquid_continuation_enabled = bool(entry_cfg.get(
+            "liquid_continuation_exception_enabled", True))
+        self.liquid_continuation_min_r6_down = float(entry_cfg.get(
+            "liquid_continuation_min_return_6h_downtrend", 0.02))
+        self.liquid_continuation_min_r24_down = float(entry_cfg.get(
+            "liquid_continuation_min_return_24h_downtrend", 0.04))
+        self.liquid_continuation_min_x402 = float(entry_cfg.get(
+            "liquid_continuation_min_x402", 0.25))
+        self.liquid_continuation_min_cmc = float(entry_cfg.get(
+            "liquid_continuation_min_cmc", 0.20))
+        self.liquid_continuation_max_round_trip = float(entry_cfg.get(
+            "liquid_continuation_max_round_trip_loss_pct", 1.5))
+        self.liquid_continuation_max_risk = float(entry_cfg.get(
+            "liquid_continuation_max_token_risk_score", 30.0))
+        self.liquid_continuation_min_volume = float(entry_cfg.get(
+            "liquid_continuation_min_volume_24h_usd", 10_000_000))
         esc = d.get("recovery_escalation", {}) or {}
         self.recovery_escalation_enabled = bool(esc.get("enabled", False))
         self.recovery_rank_above = int(esc.get("rank_above", 20))
@@ -859,6 +875,36 @@ class RotationDecider:
             and float(d.get("cmc_volume_24h", 0.0) or 0.0) >= self.scout_min_volume
         )
 
+    def _liquid_confirmed_continuation(self, signal: TokenSignal, snapshot: dict,
+                                       quality: dict[str, float]) -> bool:
+        """Bypass weak volume-change noise for liquid, confirmed comeback trends.
+
+        CMC volume-change can be negative after the first impulse even when
+        absolute volume, x402, CMC momentum, route friction, and risk all still
+        confirm an executable continuation.  In catch-up mode we should not let
+        that single derivative metric suppress a small/medium recovery entry.
+        Late-hot and near-high guards still run before this exception.
+        """
+        if not self.liquid_continuation_enabled or signal.regime is not Regime.TREND_DOWN:
+            return False
+        d = snapshot.get(signal.token, {})
+        r6 = float(d.get("return_6h", 0.0) or 0.0)
+        r24 = float(d.get("return_24h", 0.0) or 0.0)
+        return (
+            float(signal.score) >= self.down_min_mom
+            and float(quality.get(signal.token, -1.0)) >= self.min_entry_quality_down
+            and self.liquid_continuation_min_r6_down <= r6 <= self.max_entry_r6_down
+            and r24 >= self.liquid_continuation_min_r24_down
+            and float(d.get("cmc_pct_1h", 0.0) or 0.0) <= self.max_entry_cmc_1h_down
+            and float(d.get("cmc_pct_24h", 0.0) or 0.0) <= self.max_entry_cmc_24h_down
+            and float(d.get("cmc_pct_7d", 0.0) or 0.0) <= self.max_entry_cmc_7d_down
+            and float(d.get("x402_token_score", 0.0) or 0.0) >= self.liquid_continuation_min_x402
+            and float(d.get("cmc_score", 0.0) or 0.0) >= self.liquid_continuation_min_cmc
+            and float(d.get("round_trip_loss_pct", 100.0) or 100.0) <= self.liquid_continuation_max_round_trip
+            and float(d.get("token_risk_score", 100.0) or 100.0) <= self.liquid_continuation_max_risk
+            and float(d.get("cmc_volume_24h", 0.0) or 0.0) >= self.liquid_continuation_min_volume
+        )
+
     def _catchup_gross(self, targets: list[str], signals: dict[str, TokenSignal],
                        risk_limits: dict, snapshot: dict | None = None,
                        quality: dict[str, float] | None = None) -> float:
@@ -1001,6 +1047,8 @@ class RotationDecider:
                 return False, f"late_hot_7d:{c7:.3f}"
             if dist_high > self.max_entry_distance_high_down and r6 > 0:
                 return False, f"near_48h_high:{dist_high:.3f}"
+            if self._liquid_confirmed_continuation(signal, snapshot, quality):
+                return True, "liquid_confirmed_continuation"
             if vol_chg < self.min_entry_volume_change_down:
                 return False, f"weak_volume:{vol_chg:.3f}"
             if (c1 > self.max_entry_cmc_1h_down * 0.70

@@ -721,6 +721,65 @@ def test_downtrend_scout_exception_allows_small_recovery_probe(cfg):
     assert "gross=0.18" in buys[0]["rationale"]
 
 
+def test_liquid_confirmed_continuation_ignores_weak_volume_change_noise(cfg):
+    cfg = {**cfg,
+           "twak": {**cfg["twak"],
+                    "token_contracts": {"BEAT": "0x1", "XPL": "0x2"},
+                    "deny_buy": [], "sell_only_tokens": []},
+           "decision": {**cfg["decision"],
+                        "rotation_downtrend_topk": 1,
+                        "rotation_downtrend_min_momentum": 0.275,
+                        "target_gross_exposure_pct": 0.55,
+                        "entry_filter": {**cfg["decision"]["entry_filter"],
+                                         "enabled": True,
+                                         "liquid_continuation_exception_enabled": True,
+                                         "liquid_continuation_min_x402": 0.25,
+                                         "liquid_continuation_min_cmc": 0.20,
+                                         "liquid_continuation_max_round_trip_loss_pct": 1.5,
+                                         "liquid_continuation_min_volume_24h_usd": 10_000_000},
+                        "dynamic_sizing": {"enabled": False}}}
+    d = RotationDecider(cfg)
+    signals = {
+        "XPL": _sig("XPL", 0.264, Regime.TREND_DOWN),
+        "BEAT": _sig("BEAT", 0.342, Regime.TREND_DOWN),
+    }
+    snap = _snap("BEAT", "XPL")
+    snap["BEAT"].update({
+        "return_6h": 0.031,
+        "return_24h": 0.109,
+        "cmc_pct_1h": -0.001,
+        "cmc_pct_24h": 0.066,
+        "cmc_pct_7d": 0.170,
+        "cmc_volume_change_24h": -0.461,
+        "cmc_volume_24h": 59_000_000,
+        "x402_token_score": 0.304,
+        "cmc_score": 0.240,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.197,
+        "distance_from_48h_high": -0.10,
+    })
+    snap["XPL"].update({
+        "return_6h": 0.034,
+        "return_24h": 0.100,
+        "cmc_pct_1h": -0.008,
+        "cmc_pct_24h": 0.095,
+        "cmc_pct_7d": -0.058,
+        "cmc_volume_change_24h": 0.10,
+        "cmc_volume_24h": 20_000_000,
+        "x402_token_score": 0.225,
+        "cmc_score": 0.542,
+        "token_risk_score": 10,
+        "round_trip_loss_pct": 1.363,
+        "distance_from_48h_high": -0.10,
+    })
+
+    out = d.decide(snap, signals, _portfolio(), {"signal_streaks": {"BEAT": 4, "XPL": 4}})
+    buys = [x for x in out if x["action"] == "buy"]
+
+    assert [x["token"] for x in buys] == ["BEAT"]
+    assert "liquid_confirmed_continuation" in buys[0]["rationale"]
+
+
 def test_surviving_scout_scales_up_while_far_behind(cfg):
     cfg = {**cfg, "decision": {**cfg["decision"],
                                "rotation_downtrend_topk": 1,
