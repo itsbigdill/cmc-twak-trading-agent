@@ -27,6 +27,7 @@ from .decision import build_decider, runtime_validated_token, tradeable_buy_toke
 from .executor import AmbiguousExecutionError, build_executor
 from .logbook import DecisionLog, utc_date, utc_hour, utc_now_iso
 from .leaderboard import current_status
+from .profit_lock import progressive_profit_lock
 from .signal_engine import score_universe
 from .state import PortfolioState, make_order_id
 
@@ -594,15 +595,15 @@ def process_tick(cfg, state, snapshot, prices, decider, executor, log,
         stop_price = None
         if pnl <= -r["per_position_stop_pct"]:
             stop_reason = f"per-position stop ({pnl:.3f})"
-        elif lock.get("enabled") and pos.avg_price > 0:
-            peak_pnl = pos.peak_executable_price / pos.avg_price - 1.0
-            if peak_pnl >= float(lock.get("activation_pct", 0.10)):
-                stop_price = pos.avg_price * (1.0 + float(lock.get("breakeven_floor_pct", 0.02)))
-                if peak_pnl >= float(lock.get("trailing_activation_pct", 0.20)):
-                    stop_price = max(stop_price, pos.peak_executable_price
-                                     * (1.0 - float(lock.get("trailing_gap_pct", 0.08))))
-                if px <= stop_price:
-                    stop_reason = f"profit lock (peak={peak_pnl:.3f}, floor={stop_price:.8f})"
+        elif lock.get("enabled") and pos.avg_price > 0 and pos.qty > 0:
+            lock_result = progressive_profit_lock(
+                avg_price=pos.avg_price,
+                peak_price=pos.peak_executable_price,
+                current_price=px,
+                lock_cfg=lock,
+            )
+            stop_price = lock_result.stop_price
+            stop_reason = lock_result.reason
         if stop_reason:
             log.event("position_stop", token=tkn, pnl_pct=round(pnl, 4),
                       executable_price=px, stop_price=stop_price, note=stop_reason)

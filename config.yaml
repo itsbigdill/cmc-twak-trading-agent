@@ -276,8 +276,14 @@ decision:
 
 profit_lock:
   enabled: true
-  activation_pct: 0.07                   # after +7%, never let a winner become a loser
-  breakeven_floor_pct: 0.025             # preserve entry cost + expected route friction
+  activation_pct: 0.025                  # start protecting winners early; use floor_steps below
+  breakeven_floor_pct: 0.012             # small positive floor before the +4% lock tier
+  floor_steps:
+    - {peak_pct: 0.025, floor_pct: 0.012} # +2.5% peak -> defend roughly +1.2%
+    - {peak_pct: 0.040, floor_pct: 0.030} # +4.0% peak -> do not give back below +3%
+    - {peak_pct: 0.060, floor_pct: 0.045} # +6.0% peak -> defend +4.5%
+    - {peak_pct: 0.080, floor_pct: 0.060} # +8.0% peak -> defend +6%
+    - {peak_pct: 0.120, floor_pct: 0.090} # +12% peak -> defend +9%
   trailing_activation_pct: 0.14
   trailing_gap_pct: 0.055
   partial_take_pct: 0.12
