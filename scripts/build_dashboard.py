@@ -1,7 +1,7 @@
 """
 Build the public dashboard (dashboard/index.html) — minimal, elegant, real data.
 
-  * Hero   = REAL on-chain portfolio (live wallet balances via twak).
+  * Hero   = REAL executable trading balance (USDT cash + live liquidation value).
   * Track  = strategy backtest on real prices; chart -> live/paper equity once it
             has enough points.
   * Market = LIVE read: regime + Fear&Greed + BTC dominance + funding + leaderboard.
@@ -33,6 +33,20 @@ def _logo(sym, contract):
     if sym == "BNB":
         return _TW + "/info/logo.png"
     return f"{_TW}/assets/{contract}/logo.png" if contract else ""
+
+
+def _contract(cfg, sym):
+    """Best-effort BSC contract lookup for dashboard logos / wallet balance calls."""
+    inline = (cfg.get("twak") or {}).get("token_contracts") or {}
+    if inline.get(sym):
+        return inline.get(sym)
+    path = (cfg.get("universe") or {}).get("resolved_contracts_file") or "config/bsc_contracts.json"
+    try:
+        data = json.load(open(os.path.join(ROOT, path)))
+        meta = data.get(sym) or {}
+        return meta.get("address")
+    except Exception:
+        return None
 
 
 def _logo_datauri():
@@ -103,7 +117,7 @@ def _wallet(cfg):
     try:
         st = json.load(open(os.path.join(ROOT, cfg["paths"]["state_file"])))
         for sym in st.get("positions", {}):
-            at = cfg["twak"]["token_contracts"].get(sym)
+            at = _contract(cfg, sym)
             r = _twak(["balance", "--address", addr, "--token", at, "--chain", "bsc"]) if at else None
             if r and float(r.get("available", 0) or 0) > 0:
                 usd = float(r.get("totalUsd", 0) or 0)
@@ -266,13 +280,85 @@ def build_data(with_wallet=True, with_market=True):
     latest_trace = next((r for r in reversed(rows) if r.get("kind") == "decision_trace"), {})
     trace_portfolio = latest_trace.get("portfolio") or {}
     trace_position_values = trace_portfolio.get("position_values") or {}
+    latest_exec_prices = {}
+    latest_ref_prices = {}
+    for r in reversed(rows):
+        if r.get("kind") != "liquidation_quote":
+            continue
+        tok = r.get("token")
+        if not tok or tok in latest_exec_prices:
+            continue
+        try:
+            px = float(r.get("executable_price") or 0.0)
+        except (TypeError, ValueError):
+            px = 0.0
+        if px > 0:
+            latest_exec_prices[tok] = px
+            try:
+                latest_ref_prices[tok] = float(r.get("reference_price") or 0.0)
+            except (TypeError, ValueError):
+                latest_ref_prices[tok] = 0.0
     wallet_prices = {}
+    wallet_usd_by_sym = {}
+    wallet_amount_by_sym = {}
     for h in portfolio.get("holdings", []) or []:
         sym = h.get("sym")
         amount = float(h.get("amount") or 0.0)
         usd = float(h.get("usd") or 0.0)
         if sym and amount > 0 and usd > 0:
             wallet_prices[sym] = usd / amount
+            wallet_usd_by_sym[sym] = usd
+            wallet_amount_by_sym[sym] = amount
+    if live:
+        exec_holdings = []
+        exec_total = 0.0
+        cash = float(st.get("cash_usd") or 0.0)
+        if cash > 0:
+            exec_holdings.append({
+                "sym": "USDT", "amount": round(cash, 2), "usd": round(cash, 2),
+                "exec_usd": round(cash, 2), "wallet_usd": round(wallet_usd_by_sym.get("USDT", cash), 2),
+                "mark_source": "cash", "logo": _logo("USDT", USDT),
+            })
+            exec_total += cash
+        mp = (market or {}).get("prices", {}) or {}
+        for tok, p in (st.get("positions") or {}).items():
+            qty = float(p.get("qty") or 0.0)
+            if qty <= 0:
+                continue
+            source = "exec"
+            if latest_exec_prices.get(tok):
+                px = latest_exec_prices[tok]
+            elif qty and trace_position_values.get(tok):
+                px = float(trace_position_values[tok]) / qty
+                source = "agent"
+            elif wallet_prices.get(tok):
+                px = wallet_prices[tok]
+                source = "wallet"
+            else:
+                px = float(mp.get(tok) or p.get("avg_price") or 0.0)
+                source = "cache"
+            usd = qty * px
+            exec_holdings.append({
+                "sym": tok,
+                "amount": round(qty, 4),
+                "usd": round(usd, 2),
+                "exec_usd": round(usd, 2),
+                "wallet_usd": round(wallet_usd_by_sym.get(tok, 0.0), 2),
+                "ref_usd": round(qty * latest_ref_prices.get(tok, 0.0), 2) if latest_ref_prices.get(tok) else None,
+                "mark_source": source,
+                "logo": _logo(tok, _contract(cfg, tok)),
+            })
+            exec_total += usd
+        if exec_holdings:
+            wallet_total = float(portfolio.get("total_usd") or 0.0)
+            portfolio = {
+                **portfolio,
+                "total_usd": round(exec_total, 2),
+                "trading_usd": round(exec_total, 2),
+                "wallet_total_usd": round(wallet_total, 2) if wallet_total else None,
+                "valuation_source": "executable",
+                "holdings": exec_holdings,
+            }
     # open positions with entry -> current price -> unrealized P&L
     positions = []
     if live and st.get("positions"):
@@ -280,20 +366,24 @@ def build_data(with_wallet=True, with_market=True):
         for tok, p in st["positions"].items():
             entry = p.get("avg_price", 0) or 0
             qty = p.get("qty", 0) or 0
-            source = "cache"
-            if wallet_prices.get(tok):
-                now = wallet_prices[tok]
-                source = "wallet"
+            source = "exec"
+            if latest_exec_prices.get(tok):
+                now = latest_exec_prices[tok]
             elif qty and trace_position_values.get(tok):
                 now = float(trace_position_values[tok]) / qty
                 source = "agent"
+            elif wallet_prices.get(tok):
+                now = wallet_prices[tok]
+                source = "wallet"
             else:
                 now = mp.get(tok) or entry
+                source = "cache"
             positions.append({"token": tok, "entry": entry, "now": now,
                               "pnl": round((now / entry - 1) * 100, 2) if entry else 0.0,
                               "value": round(qty * now, 2),
+                              "wallet_value": round(wallet_usd_by_sym.get(tok, 0.0), 2),
                               "mark_source": source,
-                              "logo": _logo(tok, cfg["twak"]["token_contracts"].get(tok))})
+                              "logo": _logo(tok, _contract(cfg, tok))})
     kill = cfg["risk"]["drawdown_kill_pct"]
     posture = (cfg.get("decision", {}).get("strategy_label") or
                ("Aggressive" if kill >= 0.24 else "Balanced" if kill >= 0.18 else "Defensive"))
@@ -692,7 +782,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 <div class="sponsors"><span>Powered by</span><b>CoinMarketCap Agent Hub</b><span class="dot">·</span><b>Trust Wallet Agent Kit</b><span class="dot">·</span><b>BNB ERC-8004</b><span class="dot">·</span><span class="x402">x402 micropayments</span></div>
 <div class="foot" id="cfg"></div>
 <div class="credit">agent <span id="addr"></span> ·
- <a href="https://github.com/DanMarteens/cmc-twak-trading-agent" target="_blank">source</a> · #CMCAgentHub</div>
+ <a href="https://github.com/itsbigdill/cmc-twak-trading-agent" target="_blank">source</a> · #CMCAgentHub</div>
 
 </div>
 <script>
@@ -728,10 +818,12 @@ const pv=D.portfolio.total_usd;
 if(pv!=null){const t0=performance.now();(function a(n){let p=Math.min((n-t0)/750,1);p=1-Math.pow(1-p,3);
  $('pv').textContent='$'+(pv*p).toFixed(2);if(p<1)requestAnimationFrame(a);})(t0);}else $('pv').textContent='—';
 const _g=D.portfolio.gas||{amount:0,usd:0};
-$('pvsub').innerHTML=_g.usd?`Gas reserve · ${_g.amount.toFixed(5)} BNB · $${_g.usd.toFixed(2)} · excluded from trading balance, PnL & leaderboard`:(D.portfolio.holdings.length?'':'fund wallet to begin');
+$('pvsub').innerHTML=(D.portfolio.valuation_source==='executable'
+ ? `Executable trading balance · sell-route value${D.portfolio.wallet_total_usd?` · wallet mark $${D.portfolio.wallet_total_usd.toFixed(2)}`:''}`
+ : (_g.usd?`Gas reserve · ${_g.amount.toFixed(5)} BNB · $${_g.usd.toFixed(2)} · excluded from trading balance, PnL & leaderboard`:(D.portfolio.holdings.length?'':'fund wallet to begin')));
 $('holds').innerHTML=D.portfolio.holdings.map(h=>`<div class="hchip">
  <img class="ico" src="${h.logo}" onerror="this.outerHTML='<i class=dotk></i>'"/>${h.sym}
- <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}</span></div>`).join('');
+ <span class="ha num">${h.amount} · $${h.usd.toFixed(2)}${h.mark_source&&h.mark_source!=='cash'?` ${h.mark_source}`:''}${h.wallet_usd&&Math.abs(h.wallet_usd-h.usd)>0.05?` · wallet $${h.wallet_usd.toFixed(2)}`:''}</span></div>`).join('');
 
 const t=D.track, FULL=(D.chart.curve||[]);
 const TABS=[['1H',1],['12H',12],['24H',24],['3D',72],['7D',168],['All',null]];
@@ -801,10 +893,10 @@ if(D.reasoning&&D.reasoning.length){
 if(D.positions&&D.positions.length){
  $('posmeta').textContent=D.positions.length+' open';
  $('positions').innerHTML=D.positions.map(p=>{const up=p.pnl>=0,c=up?'var(--g)':'var(--r)';
- return `<div class="po"><span class="pol"><img class="ico sm" src="${p.logo}" onerror="fbk(this,'${p.token}')"/><b>${p.token}</b></span>`
+  return `<div class="po"><span class="pol"><img class="ico sm" src="${p.logo}" onerror="fbk(this,'${p.token}')"/><b>${p.token}</b></span>`
    +`<span class="poe">${fmtpx(p.entry)} → ${fmtpx(p.now)}<span class="src">${p.mark_source||'mark'}</span></span>`
    +`<span class="pnl" style="color:${c}">${up?'+':''}${p.pnl}%</span>`
-   +`<span class="pov">$${p.value.toFixed(2)}</span></div>`;}).join('');
+   +`<span class="pov">$${p.value.toFixed(2)}${p.wallet_value&&Math.abs(p.wallet_value-p.value)>0.05?` <span class="src">wallet $${p.wallet_value.toFixed(2)}</span>`:''}</span></div>`;}).join('');
 }else $('poscard').style.display='none';
 
 // recent activity — 12 rows by default, then vertical pagination in 12-row chunks
