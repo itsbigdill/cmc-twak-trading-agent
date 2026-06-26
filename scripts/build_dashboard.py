@@ -462,7 +462,9 @@ def main():
 TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<meta http-equiv="refresh" content="60"/>
+<meta http-equiv="Cache-Control" content="no-store"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
 <title>CTA · CMC-TWAK-Agent</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -568,6 +570,7 @@ background-attachment:fixed;padding:40px 20px 32px;-webkit-font-smoothing:antial
 .po:last-child{border:0}
 .po .pol{display:flex;align-items:center;gap:9px;width:88px;font-weight:600}
 .po .poe{flex:1;color:var(--mut);font-variant-numeric:tabular-nums}
+.po .src{margin-left:6px;color:var(--mut2);font-size:9px;text-transform:uppercase;letter-spacing:.08em}
 .po .pnl{width:66px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
 .po .pov{width:78px;text-align:right;color:var(--mut);font-variant-numeric:tabular-nums}
 @media(max-width:620px){.po .pov{display:none}}
@@ -705,9 +708,14 @@ const fmtTime=s=>{const d=_dt(s);return d?new Intl.DateTimeFormat('en-US',{timeZ
 const fmtStamp=s=>{const d=_dt(s);return d?new Intl.DateTimeFormat('en-US',{timeZone:TZ,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(d):'';};
 const fmtChart=(s,short=false)=>short?fmtTime(s):fmtDate(s);
 const REG={trend_up:['#34d399','rgba(52,211,153,.13)','uptrend'],trend_down:['#fb7185','rgba(251,113,133,.13)','downtrend'],chop:['#fbbf63','rgba(251,191,99,.13)','chop']};
+function updateFreshness(){
+ const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
+ $('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago · Miami '+fmtTime(D.generated_ts);
+}
+setInterval(updateFreshness,1000);
+setTimeout(()=>{const u=new URL(location.href);u.searchParams.set('t',Date.now().toString());location.replace(u.toString());},60000);
 $('mode').textContent={live:'LIVE',paper:'LIVE',dry_run:'ARMED'}[D.mode]||'ARMED';
-const ago=Math.max(0,Math.round(Date.now()/1000-D.generated_ts));
-$('beat').textContent='updated '+(ago<90?ago+'s':Math.round(ago/60)+'m')+' ago · Miami '+fmtTime(D.generated_ts);
+updateFreshness();
 $('llmstatus').textContent=`🧠 ${D.llm} · ${D.llm_status}`;
 $('chips').innerHTML=[`<span class="chip on">🟢 registered</span>`,
  `<span class="chip">ERC-8004 <b>#${D.agent_id}</b></span>`,
@@ -793,8 +801,8 @@ if(D.reasoning&&D.reasoning.length){
 if(D.positions&&D.positions.length){
  $('posmeta').textContent=D.positions.length+' open';
  $('positions').innerHTML=D.positions.map(p=>{const up=p.pnl>=0,c=up?'var(--g)':'var(--r)';
-  return `<div class="po"><span class="pol"><img class="ico sm" src="${p.logo}" onerror="fbk(this,'${p.token}')"/><b>${p.token}</b></span>`
-   +`<span class="poe">${fmtpx(p.entry)} → ${fmtpx(p.now)}</span>`
+ return `<div class="po"><span class="pol"><img class="ico sm" src="${p.logo}" onerror="fbk(this,'${p.token}')"/><b>${p.token}</b></span>`
+   +`<span class="poe">${fmtpx(p.entry)} → ${fmtpx(p.now)}<span class="src">${p.mark_source||'mark'}</span></span>`
    +`<span class="pnl" style="color:${c}">${up?'+':''}${p.pnl}%</span>`
    +`<span class="pov">$${p.value.toFixed(2)}</span></div>`;}).join('');
 }else $('poscard').style.display='none';
