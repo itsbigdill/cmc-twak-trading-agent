@@ -255,12 +255,12 @@ decision:
     high_conviction_min_cmc: 0.80
     high_conviction_min_quality: 0.25
     high_conviction_max_round_trip_loss_pct: 2.5
-    high_conviction_max_token_risk_score: 30
+    high_conviction_max_token_risk_score: 50 # BAS-like: medium TWAK risk is OK only with strong CMC/x402/route confirmation
     high_conviction_min_volume_24h_usd: 5000000
     high_conviction_catchup_rank_above: 5
     risk_adjusted_enabled: true
     medium_risk_threshold: 30
-    medium_risk_gross_cap: 0.15          # SAHARA-like: route valid, but CMC/news/risk not clean
+    medium_risk_gross_cap: 0.15          # medium risk stays small unless high-conviction confirmation overrides it
     weak_cmc_threshold: 0.40
     weak_cmc_gross_cap: 0.30             # recovery scout: validated x402 can still work before CMC catches up
     stress_drawdown_pct: 0.18
@@ -314,7 +314,7 @@ llm:
   cash_veto_override_min_x402: 0.25
   cash_veto_override_min_return_6h: -0.005
   cash_veto_override_max_round_trip_loss_pct: 2.5
-  cash_veto_override_max_token_risk_score: 30
+  cash_veto_override_max_token_risk_score: 50
   cash_veto_override_max_leaderboard_dd_pct: 24.0
 
 # --- Integrations ---------------------------------------------------------
